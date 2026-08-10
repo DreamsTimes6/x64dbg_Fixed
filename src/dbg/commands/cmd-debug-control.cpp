@@ -24,6 +24,10 @@
 // suspended threads stay suspended until a plain run command resumes them.
 static bool bStepSuspendedOthers = false;
 
+// Set by "run <addr>" (F4) so a breakpoint hit exactly at the target address
+// pauses cleanly without triggering the breakpoint's own actions.
+extern duint gRunToAddress;
+
 static bool isInt3Exception()
 {
     if(getLastExceptionInfo().ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT)
@@ -65,6 +69,16 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         bStepSuspendedOthers = true;
         resumeSteppedThreads = false; // keep them suspended after the run
     }
+    // Track the run-to address (F4) so a hit at it skips the breakpoint's own
+    // actions (commands/log/hit count) in cbGenericBreakpoint.
+    if(argc >= 2)
+    {
+        duint runToAddr = 0;
+        if(valfromstring(argv[1], &runToAddr, false))
+            gRunToAddress = runToAddr;
+    }
+    else
+        gRunToAddress = 0;
     // Resume threads suspended by single-threaded stepping (step commands
     // pass resumeSteppedThreads=false and keep the suspension active)
     if(resumeSteppedThreads && bStepSuspendedOthers)

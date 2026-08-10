@@ -50,6 +50,12 @@ static duint pDebuggedBase = 0;
 static duint pDebuggedEntry = 0;
 static bool bRepeatIn = false;
 static duint stepRepeat = 0;
+
+// F4 "run to address" target. When a breakpoint is hit exactly at this
+// address we pause cleanly and skip the breakpoint's own actions (commands,
+// log, hit count, conditions), so an existing F2 breakpoint at the same
+// address is not "triggered" by a run-to operation.
+duint gRunToAddress = 0;
 static bool bIsAttached = false;
 static bool bPauseAtAttach = false;
 static INIT_STRUCT* activeDebugLoopInit = nullptr;
@@ -955,6 +961,30 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
         break;
     }
     varset("$breakpointexceptionaddress", breakpointExceptionAddress, true);
+    // F4 "run to address": when the hit address is the run-to target, pause
+    // cleanly and skip the breakpoint's own actions (commands, log, hit
+    // count, conditions) so an existing F2 breakpoint at the same address is
+    // not "triggered" by the run-to operation.
+    if(gRunToAddress && breakpointExceptionAddress == gRunToAddress)
+    {
+        gRunToAddress = 0;
+        bool removeRunToSs = bpPtr && bpPtr->singleshoot && bpPtr->type == BPNORMAL;
+        // release the breakpoint lock to prevent deadlocks during the wait
+        EXCLUSIVE_RELEASE();
+        // Remove the run-to singleshot breakpoint (BpDelete takes the lock)
+        if(removeRunToSs)
+            BpDelete(breakpointExceptionAddress, BPNORMAL);
+        DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
+        //lock
+        lock(WAITID_RUN);
+        // Plugin callback
+        PLUG_CB_PAUSEDEBUG pauseInfo = { nullptr };
+        plugincbcall(CB_PAUSEDEBUG, &pauseInfo);
+        dbgsetforeground();
+        dbgsetskipexceptions(false);
+        wait(WAITID_RUN);
+        return;
+    }
     if(bpPtr == nullptr || !bpPtr->enabled) //invalid / disabled breakpoint hit (most likely a bug)
     {
         // release the breakpoint lock to prevent deadlocks during the wait
