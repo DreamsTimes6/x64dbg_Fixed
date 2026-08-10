@@ -44,6 +44,10 @@
         <translation>headless -rpc JSON 接口，供 AI/脚本自动化调用</translation>
     </message>
     <message>
+        <source>An open-source x64/x32 debugger for Windows. Optimized for reverse engineering, malware analysis and AI command-line automation (headless -rpc).</source>
+        <translation>开源的 x64/x32 Windows 调试器。为逆向工程、恶意软件分析及 AI 命令行自动化（headless -rpc）优化。</translation>
+    </message>
+    <message>
         <source>Use trace coverage data to assist more accurate disassembling (experimental)</source>
         <translation>使用轨迹覆盖率数据辅助更精确的反汇编（实验性）</translation>
     </message>
