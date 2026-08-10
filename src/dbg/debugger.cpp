@@ -56,6 +56,13 @@ static duint stepRepeat = 0;
 // log, hit count, conditions), so an existing F2 breakpoint at the same
 // address is not "triggered" by a run-to operation.
 duint gRunToAddress = 0;
+
+// When F4 targets an address it arms a one-shot INT3 via SetBPX (without
+// creating a breakpoint) so the run-to works regardless of any existing
+// software breakpoint (enabled or disabled) at the target, without touching
+// its state. TitanEngine restores the byte automatically on hit; a plain run
+// (F9) cleans up if the run-to never hit.
+bool gRunToSetBPX = false;
 static bool bIsAttached = false;
 static bool bPauseAtAttach = false;
 static INIT_STRUCT* activeDebugLoopInit = nullptr;
@@ -967,8 +974,10 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
     // not "triggered" by the run-to operation.
     if(gRunToAddress && breakpointExceptionAddress == gRunToAddress)
     {
+        duint runToAddr = gRunToAddress;
         gRunToAddress = 0;
         bool removeRunToSs = bpPtr && bpPtr->singleshoot && bpPtr->type == BPNORMAL;
+        gRunToSetBPX = false; // TitanEngine restored the one-shot INT3 already
         // release the breakpoint lock to prevent deadlocks during the wait
         EXCLUSIVE_RELEASE();
         // Remove the run-to singleshot breakpoint (BpDelete takes the lock)

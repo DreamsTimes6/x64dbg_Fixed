@@ -17,6 +17,7 @@
 #include "exception.h"
 #include "stringformat.h"
 #include "simplescript.h"
+#include "breakpoint.h"
 
 // When "Engine.SingleThreadStepping" is enabled the step commands suspend
 // every thread except the active one (like OllyDbg does), so breakpoints hit
@@ -27,6 +28,7 @@ static bool bStepSuspendedOthers = false;
 // Set by "run <addr>" (F4) so a breakpoint hit exactly at the target address
 // pauses cleanly without triggering the breakpoint's own actions.
 extern duint gRunToAddress;
+extern bool gRunToSetBPX;
 
 static bool isInt3Exception()
 {
@@ -69,16 +71,33 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         bStepSuspendedOthers = true;
         resumeSteppedThreads = false; // keep them suspended after the run
     }
-    // Track the run-to address (F4) so a hit at it skips the breakpoint's own
-    // actions (commands/log/hit count) in cbGenericBreakpoint.
+    // F4 / "run <addr>": record the target for run-to priority in
+    // cbGenericBreakpoint, and set a singleshot breakpoint WITHOUT touching
+    // an existing breakpoint — the old `bp "addr", ss` path enabled a
+    // disabled F2 breakpoint via cbDebugSetBPX's "bpe" fallback.
     if(argc >= 2)
     {
         duint runToAddr = 0;
         if(valfromstring(argv[1], &runToAddr, false))
+        {
             gRunToAddress = runToAddr;
+            // Arm a one-shot INT3 (process-wide) without creating a
+            // breakpoint, so F4 works regardless of any existing software
+            // breakpoint (enabled or disabled) at the target and does not
+            // touch its state. TitanEngine restores the byte on hit.
+            if(SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint))
+                gRunToSetBPX = true;
+        }
     }
     else
+    {
+        // Plain run (F9): clean up a one-shot INT3 left by an unfinished
+        // run-to (TitanEngine only restores it when it actually hits).
+        if(gRunToSetBPX && gRunToAddress)
+            DeleteBPX(gRunToAddress);
+        gRunToSetBPX = false;
         gRunToAddress = 0;
+    }
     // Resume threads suspended by single-threaded stepping (step commands
     // pass resumeSteppedThreads=false and keep the suspension active)
     if(resumeSteppedThreads && bStepSuspendedOthers)
@@ -86,9 +105,6 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         ThreadResumeAll();
         bStepSuspendedOthers = false;
     }
-    // Set a singleshot breakpoint at the first parameter
-    if(argc >= 2 && !DbgCmdExecDirect(StringUtils::sprintf("bp \"%s\", ss", argv[1]).c_str()))
-        return false;
     // Don't "run" twice if the program is already running
     if(dbgisrunning())
         return false;
