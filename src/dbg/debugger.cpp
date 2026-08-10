@@ -57,11 +57,12 @@ static duint stepRepeat = 0;
 // address is not "triggered" by a run-to operation.
 duint gRunToAddress = 0;
 
-// When F4 targets an address it arms a one-shot INT3 via SetBPX (without
-// creating a breakpoint) so the run-to works regardless of any existing
-// software breakpoint (enabled or disabled) at the target, without touching
-// its state. TitanEngine restores the byte automatically on hit; a plain run
-// (F9) cleans up if the run-to never hit.
+// When F4 targets an address it arms a thread-local hardware breakpoint (so
+// only the current/active thread triggers the run-to), unless the target
+// already has an ENABLED software breakpoint — in that case F4 does nothing
+// special and the breakpoint fires normally with all its actions. SetBPX is
+// only a fallback when no hardware register is free.
+bool gRunToUseHardware = false;
 bool gRunToSetBPX = false;
 static bool bIsAttached = false;
 static bool bPauseAtAttach = false;
@@ -977,12 +978,24 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
         duint runToAddr = gRunToAddress;
         gRunToAddress = 0;
         bool removeRunToSs = bpPtr && bpPtr->singleshoot && bpPtr->type == BPNORMAL;
-        gRunToSetBPX = false; // TitanEngine restored the one-shot INT3 already
+        bool useHw = gRunToUseHardware;
+        bool setBpx = gRunToSetBPX;
+        gRunToUseHardware = false;
+        gRunToSetBPX = false;
         // release the breakpoint lock to prevent deadlocks during the wait
         EXCLUSIVE_RELEASE();
         // Remove the run-to singleshot breakpoint (BpDelete takes the lock)
         if(removeRunToSs)
             BpDelete(breakpointExceptionAddress, BPNORMAL);
+        // Remove the run-to hardware breakpoint and free its DR register
+        if(useHw)
+        {
+            BREAKPOINT hwBp;
+            if(BpGet(runToAddr, BPHARDWARE, nullptr, &hwBp) && TITANDRXVALID(hwBp.titantype))
+                DeleteHardwareBreakPoint(TITANGETDRX(hwBp.titantype));
+            BpDelete(runToAddr, BPHARDWARE);
+        }
+        // SetBPX fallback: TitanEngine already restored the one-shot INT3.
         DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
         //lock
         lock(WAITID_RUN);

@@ -28,6 +28,7 @@ static bool bStepSuspendedOthers = false;
 // Set by "run <addr>" (F4) so a breakpoint hit exactly at the target address
 // pauses cleanly without triggering the breakpoint's own actions.
 extern duint gRunToAddress;
+extern bool gRunToUseHardware;
 extern bool gRunToSetBPX;
 
 static bool isInt3Exception()
@@ -80,21 +81,60 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         duint runToAddr = 0;
         if(valfromstring(argv[1], &runToAddr, false))
         {
-            gRunToAddress = runToAddr;
-            // Arm a one-shot INT3 (process-wide) without creating a
-            // breakpoint, so F4 works regardless of any existing software
-            // breakpoint (enabled or disabled) at the target and does not
-            // touch its state. TitanEngine restores the byte on hit.
-            if(SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint))
-                gRunToSetBPX = true;
+            BREAKPOINT bpInfo;
+            if(BpGet(runToAddr, BPNORMAL, nullptr, &bpInfo) && bpInfo.enabled)
+            {
+                // The target already has an ENABLED software breakpoint:
+                // F4 must not interfere — the breakpoint fires normally with
+                // all its actions (commands/log/hit count). No run-to target
+                // is recorded and no extra breakpoint is set.
+                gRunToAddress = 0;
+                gRunToUseHardware = false;
+                gRunToSetBPX = false;
+            }
+            else
+            {
+                // No enabled breakpoint at the target (none, or a disabled
+                // one): arm a thread-local hardware breakpoint so only the
+                // current thread triggers the run-to, and F4 pauses cleanly
+                // without touching the disabled breakpoint's state. SetBPX
+                // (process-wide INT3) is only a fallback when no hardware
+                // register is free.
+                gRunToAddress = runToAddr;
+                gRunToUseHardware = false;
+                gRunToSetBPX = false;
+                DWORD drx = 0;
+                if(GetUnusedHardwareBreakPointRegister(&drx))
+                {
+                    int titantype = 0;
+                    TITANSETDRX(titantype, drx);
+                    TITANSETTYPE(titantype, UE_HARDWARE_EXECUTE);
+                    TITANSETSIZE(titantype, UE_HARDWARE_SIZE_1);
+                    if(BpNew(runToAddr, true, true, 0, BPHARDWARE, titantype, "") &&
+                       SetHardwareBreakPoint(runToAddr, drx, UE_HARDWARE_EXECUTE, UE_HARDWARE_SIZE_1, cbHardwareBreakpoint))
+                        gRunToUseHardware = true;
+                    else
+                        BpDelete(runToAddr, BPHARDWARE);
+                }
+                if(!gRunToUseHardware && SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint))
+                    gRunToSetBPX = true;
+            }
         }
     }
     else
     {
-        // Plain run (F9): clean up a one-shot INT3 left by an unfinished
-        // run-to (TitanEngine only restores it when it actually hits).
+        // Plain run (F9): clean up any unfinished run-to breakpoint (hardware
+        // or the SetBPX fallback).
+        if(gRunToUseHardware && gRunToAddress)
+        {
+            BREAKPOINT hwBp;
+            if(BpGet(gRunToAddress, BPHARDWARE, nullptr, &hwBp) && TITANDRXVALID(hwBp.titantype))
+                DeleteHardwareBreakPoint(TITANGETDRX(hwBp.titantype));
+            BpDelete(gRunToAddress, BPHARDWARE);
+        }
         if(gRunToSetBPX && gRunToAddress)
             DeleteBPX(gRunToAddress);
+        gRunToUseHardware = false;
         gRunToSetBPX = false;
         gRunToAddress = 0;
     }
