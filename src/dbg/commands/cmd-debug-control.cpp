@@ -56,6 +56,15 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         HistoryRecord();
     else
         HistoryClear();
+    // F4 / "run <addr>": when single-threaded stepping is enabled, suspend
+    // every other thread so they can't hit their own breakpoints (or this
+    // run-to-address target) while the current thread runs to the address.
+    if(argc >= 2 && settingboolget("Engine", "SingleThreadStepping", false) && !bStepSuspendedOthers)
+    {
+        ThreadSuspendAllExceptActive();
+        bStepSuspendedOthers = true;
+        resumeSteppedThreads = false; // keep them suspended after the run
+    }
     // Resume threads suspended by single-threaded stepping (step commands
     // pass resumeSteppedThreads=false and keep the suspension active)
     if(resumeSteppedThreads && bStepSuspendedOthers)
