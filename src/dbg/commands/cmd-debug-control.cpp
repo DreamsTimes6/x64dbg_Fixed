@@ -30,6 +30,9 @@ static bool bStepSuspendedOthers = false;
 extern duint gRunToAddress;
 extern DWORD gRunToThreadId;
 extern bool gRunToSetBPX;
+extern bool gRunToPendingF4;
+extern duint gRunToPendingF4Addr;
+extern DWORD gRunToPendingF4Thread;
 
 static bool isInt3Exception()
 {
@@ -82,7 +85,28 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         if(valfromstring(argv[1], &runToAddr, false))
         {
             BREAKPOINT bpInfo;
-            if(BpGet(runToAddr, BPNORMAL, nullptr, &bpInfo) && bpInfo.enabled)
+            bool hasEnabled = BpGet(runToAddr, BPNORMAL, nullptr, &bpInfo) && bpInfo.enabled;
+            // F4 target == current CIP (paused on the target): single-step the
+            // current instruction first so the INT3 isn't armed at our own
+            // feet, then continue to the target's NEXT execution. Only done
+            // when there is no enabled breakpoint at the target (with an
+            // enabled one, F4 must not interfere and the breakpoint fires
+            // normally).
+            if(!hasEnabled && runToAddr == GetContextDataEx(hActiveThread, UE_CIP))
+            {
+                gRunToPendingF4 = true;
+                gRunToPendingF4Addr = runToAddr;
+                gRunToPendingF4Thread = ThreadGetId(hActiveThread);
+                StepIntoWow64(cbStep);
+                dbgsetsteprepeat(true, 1);
+                GuiSetDebugStateAsync(running);
+                unlock(WAITID_RUN);
+                PLUG_CB_RESUMEDEBUG callbackInfo;
+                callbackInfo.reserved = 0;
+                plugincbcall(CB_RESUMEDEBUG, &callbackInfo);
+                return true;
+            }
+            if(hasEnabled)
             {
                 // The target already has an ENABLED software breakpoint:
                 // F4 must not interfere — the breakpoint fires normally with

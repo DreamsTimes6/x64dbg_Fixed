@@ -59,6 +59,13 @@ static duint stepRepeat = 0;
 duint gRunToAddress = 0;
 DWORD gRunToThreadId = 0;
 bool gRunToSetBPX = false;
+
+// F4 with target == current CIP: the current instruction is single-stepped
+// first (so the INT3 is not armed at our own feet), then the run-to is armed
+// and execution continues to the target's NEXT execution.
+bool gRunToPendingF4 = false;
+duint gRunToPendingF4Addr = 0;
+DWORD gRunToPendingF4Thread = 0;
 static bool bIsAttached = false;
 static bool bPauseAtAttach = false;
 static INIT_STRUCT* activeDebugLoopInit = nullptr;
@@ -1411,6 +1418,23 @@ void cbStep()
 {
     hActiveThread = ThreadGetHandle(GetDebugData()->dwThreadId);
     duint CIP = GetContextDataEx(hActiveThread, UE_CIP);
+    // F4 with target == current CIP: the preliminary single-step has executed
+    // the current instruction — arm the run-to and keep running to the
+    // target's next execution.
+    if(gRunToPendingF4)
+    {
+        duint addr = gRunToPendingF4Addr;
+        DWORD tid = gRunToPendingF4Thread;
+        gRunToPendingF4 = false;
+        gRunToAddress = addr;
+        gRunToThreadId = tid;
+        gRunToSetBPX = SetBPX(addr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint);
+        // Trace record
+        dbgtraceexecute(CIP);
+        GuiSetDebugStateAsync(running);
+        unlock(WAITID_RUN);
+        return; // continue running — the armed INT3 stops at the next execution
+    }
     if(bAbortStepping || !stepRepeat || !--stepRepeat)
     {
         DebugUpdateGuiSetStateAsync(CIP, paused);
