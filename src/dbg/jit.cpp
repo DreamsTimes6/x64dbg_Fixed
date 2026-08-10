@@ -1,6 +1,6 @@
 #include "jit.h"
 
-static bool readwritejitkey(const wchar_t* jit_key_value, DWORD* jit_key_vale_size, const char* key, arch arch_in, arch* arch_out, readwritejitkey_error_t* error, bool write)
+static bool readwritejitkey(const wchar_t* jit_key_value, DWORD* jit_key_vale_size, const char* key, arch arch_in, arch* arch_out, readwritejitkey_error_t* error, bool write, bool delete_key = false)
 {
     DWORD key_flags;
     DWORD lRv;
@@ -62,7 +62,14 @@ static bool readwritejitkey(const wchar_t* jit_key_value, DWORD* jit_key_vale_si
         if(lRv != ERROR_SUCCESS)
             return false;
 
-        lRv = RegSetValueExW(hKey, StringUtils::Utf8ToUtf16(key).c_str(), 0, REG_SZ, (const BYTE*)jit_key_value, (DWORD)(*jit_key_vale_size) + 1);
+        if(delete_key)
+        {
+            lRv = RegDeleteValueW(hKey, StringUtils::Utf8ToUtf16(key).c_str());
+            if(lRv == ERROR_FILE_NOT_FOUND) // already absent = goal achieved
+                lRv = ERROR_SUCCESS;
+        }
+        else
+            lRv = RegSetValueExW(hKey, StringUtils::Utf8ToUtf16(key).c_str(), 0, REG_SZ, (const BYTE*)jit_key_value, (DWORD)(*jit_key_vale_size) + 1);
     }
     else
     {
@@ -166,6 +173,18 @@ bool dbgsetjit(const char* jit_cmd, arch arch_in, arch* arch_out, readwritejitke
     DWORD jit_cmd_size = (DWORD)strlen(jit_cmd) * sizeof(wchar_t);
     readwritejitkey_error_t rw_error;
     if(!readwritejitkey((wchar_t*)StringUtils::Utf8ToUtf16(jit_cmd).c_str(), &jit_cmd_size, "Debugger", arch_in, arch_out, &rw_error, true))
+    {
+        if(rw_error_out != NULL)
+            *rw_error_out = rw_error;
+        return false;
+    }
+    return true;
+}
+
+bool dbgclearjit(arch arch_in, arch* arch_out, readwritejitkey_error_t* rw_error_out)
+{
+    readwritejitkey_error_t rw_error;
+    if(!readwritejitkey(nullptr, nullptr, "Debugger", arch_in, arch_out, &rw_error, true, true))
     {
         if(rw_error_out != NULL)
             *rw_error_out = rw_error;

@@ -18,6 +18,12 @@
 #include "stringformat.h"
 #include "simplescript.h"
 
+// When "Engine.SingleThreadStepping" is enabled the step commands suspend
+// every thread except the active one (like OllyDbg does), so breakpoints hit
+// by other threads can't steal the debugger focus while single-stepping. The
+// suspended threads stay suspended until a plain run command resumes them.
+static bool bStepSuspendedOthers = false;
+
 static bool isInt3Exception()
 {
     if(getLastExceptionInfo().ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT)
@@ -43,13 +49,20 @@ static bool skipInt3Stepping(int argc, char* argv[])
     return false;
 }
 
-bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history)
+bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resumeSteppedThreads)
 {
     // History handling
     if(history == history_record)
         HistoryRecord();
     else
         HistoryClear();
+    // Resume threads suspended by single-threaded stepping (step commands
+    // pass resumeSteppedThreads=false and keep the suspension active)
+    if(resumeSteppedThreads && bStepSuspendedOthers)
+    {
+        ThreadResumeAll();
+        bStepSuspendedOthers = false;
+    }
     // Set a singleshot breakpoint at the first parameter
     if(argc >= 2 && !DbgCmdExecDirect(StringUtils::sprintf("bp \"%s\", ss", argv[1]).c_str()))
         return false;
@@ -183,6 +196,13 @@ bool cbDebugStop(int argc, char* argv[])
     EXCLUSIVE_ACQUIRE(LockDebugStartStop);
     if(!hDebugLoopThread)
         return false;
+
+    // Restore threads suspended by single-threaded stepping
+    if(bStepSuspendedOthers)
+    {
+        ThreadResumeAll();
+        bStepSuspendedOthers = false;
+    }
 
     // Give the plugins a chance to perform clean-up
     PLUG_CB_STOPPINGDEBUG stoppingInfo;
@@ -504,9 +524,16 @@ bool cbDebugStepInto(int argc, char* argv[])
         return true;
     if(skipInt3Stepping(1, argv) && !--steprepeat)
         return true;
+    // Single-threaded stepping: suspend every other thread so their
+    // breakpoints can't hit while this thread is being stepped.
+    if(settingboolget("Engine", "SingleThreadStepping", false) && !bStepSuspendedOthers)
+    {
+        ThreadSuspendAllExceptActive();
+        bStepSuspendedOthers = true;
+    }
     StepIntoWow64(cbStep);
     dbgsetsteprepeat(true, steprepeat);
-    return cbDebugRunInternal(1, argv, steprepeat == 1 ? history_record : history_clear);
+    return cbDebugRunInternal(1, argv, steprepeat == 1 ? history_record : history_clear, false);
 }
 
 bool cbDebugeStepInto(int argc, char* argv[])
@@ -584,9 +611,16 @@ bool cbDebugStepOver(int argc, char* argv[])
         if(!zydis.IsBranchType(Zydis::BTCallSem) && !IsRepeated(zydis))
             history = history_record;
     }
+    // Single-threaded stepping: suspend every other thread so their
+    // breakpoints can't hit while this thread is being stepped.
+    if(settingboolget("Engine", "SingleThreadStepping", false) && !bStepSuspendedOthers)
+    {
+        ThreadSuspendAllExceptActive();
+        bStepSuspendedOthers = true;
+    }
     StepOverWrapper(cbStep);
     dbgsetsteprepeat(false, steprepeat);
-    return cbDebugRunInternal(1, argv, history);
+    return cbDebugRunInternal(1, argv, history, false);
 }
 
 bool cbDebugeStepOver(int argc, char* argv[])
@@ -608,10 +642,17 @@ bool cbDebugStepOut(int argc, char* argv[])
         return false;
     if(!steprepeat) //nothing to be done
         return true;
+    // Single-threaded stepping: suspend every other thread so their
+    // breakpoints can't hit while this thread is being stepped.
+    if(settingboolget("Engine", "SingleThreadStepping", false) && !bStepSuspendedOthers)
+    {
+        ThreadSuspendAllExceptActive();
+        bStepSuspendedOthers = true;
+    }
     gRtrPreviousCSP = GetContextDataEx(hActiveThread, UE_CSP);
     StepOverWrapper(cbRtrStep);
     dbgsetsteprepeat(false, steprepeat);
-    return cbDebugRunInternal(1, argv, history_clear);
+    return cbDebugRunInternal(1, argv, history_clear, false);
 }
 
 bool cbDebugeStepOut(int argc, char* argv[])

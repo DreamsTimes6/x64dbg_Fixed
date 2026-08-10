@@ -956,3 +956,12 @@ bool ScriptExecAwait(const char* filename, bool gui)
         return true;
     });
 }
+
+/**
+\brief Returns whether a script is currently being executed.
+Used by headless to defer shutdown while a -cf script is still running.
+*/
+extern "C" DLL_EXPORT bool _dbg_scriptisrunning()
+{
+    return scriptState != SCRIPT_PAUSED;
+}

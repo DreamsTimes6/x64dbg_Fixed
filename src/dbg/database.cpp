@@ -123,11 +123,26 @@ void DbSave(DbLoadSaveType saveType, const char* dbfile, bool disablecompression
 
     auto wdbpath = StringUtils::Utf8ToUtf16(file);
     if(!dbfile)
-        CopyFileW(wdbpath.c_str(), (wdbpath + L".bak").c_str(), FALSE); //make a backup
+    {
+        //make a backup (silently skip the first save, when there is no
+        //database file yet to back up)
+        if(!CopyFileW(wdbpath.c_str(), (wdbpath + L".bak").c_str(), FALSE) && GetLastError() != ERROR_FILE_NOT_FOUND)
+        {
+            String error = stringformatinline(StringUtils::sprintf("{winerror@%x}", GetLastError()));
+            dprintf(QT_TRANSLATE_NOOP("DBG", "\nFailed to back up database file !(GetLastError() = %s)\n"), error.c_str());
+        }
+    }
     if(json_object_size(root))
     {
+        // Write to a temporary file first, then atomically move it into
+        // place. Writing directly to wdbpath (or compressing it in place)
+        // leaves a truncated/half-compressed file behind when the process
+        // dies mid-save, which makes DbLoad refuse the whole database next
+        // time. With the tmp+MoveFileEx scheme a killed save only leaves a
+        // stale .tmp file and the previous database stays intact.
+        auto wdbpathTmp = wdbpath + L".tmp";
         auto dumpSuccess = false;
-        auto hFile = CreateFileW(wdbpath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        auto hFile = CreateFileW(wdbpathTmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
         if(hFile != INVALID_HANDLE_VALUE)
         {
             BufferedWriter bufWriter(hFile);
@@ -135,27 +150,90 @@ void DbSave(DbLoadSaveType saveType, const char* dbfile, bool disablecompression
             {
                 return ((BufferedWriter*)data)->Write(buffer, size) ? 0 : -1;
             }, &bufWriter, JSON_INDENT(1));
+            // Detect write errors in the trailing buffered chunk, which the
+            // destructor would otherwise swallow.
+            if(dumpSuccess && !bufWriter.Flush())
+                dumpSuccess = false;
         }
 
         if(!dumpSuccess)
         {
             String error = stringformatinline(StringUtils::sprintf("{winerror@%x}", GetLastError()));
             dprintf(QT_TRANSLATE_NOOP("DBG", "\nFailed to write database file !(GetLastError() = %s)\n"), error.c_str());
+            DeleteFileW(wdbpathTmp.c_str());
             json_decref(root);
             return;
         }
 
+        // Compress the temporary file (in place) before swapping it in
         if(!disablecompression && !settingboolget("Engine", "DisableDatabaseCompression", false))
-            LZ4_compress_fileW(wdbpath.c_str(), wdbpath.c_str());
+        {
+            if(LZ4_compress_fileW(wdbpathTmp.c_str(), wdbpathTmp.c_str()) != LZ4_SUCCESS)
+            {
+                dprintf(QT_TRANSLATE_NOOP("DBG", "\nFailed to compress database file !(GetLastError() = %s)\n"), stringformatinline(StringUtils::sprintf("{winerror@%x}", GetLastError())).c_str());
+                DeleteFileW(wdbpathTmp.c_str());
+                json_decref(root);
+                return;
+            }
+        }
+
+        // Atomically replace the old database with the new one
+        if(!MoveFileExW(wdbpathTmp.c_str(), wdbpath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        {
+            String error = stringformatinline(StringUtils::sprintf("{winerror@%x}", GetLastError()));
+            dprintf(QT_TRANSLATE_NOOP("DBG", "\nFailed to finalize database file !(GetLastError() = %s)\n"), error.c_str());
+            DeleteFileW(wdbpathTmp.c_str());
+            json_decref(root);
+            return;
+        }
     }
     else //remove database when nothing is in there
     {
         DeleteFileW(wdbpath.c_str());
+        DeleteFileW((wdbpath + L".bak").c_str()); // also drop the backup so a later fallback can't resurrect deleted data
         DeleteFileW(StringUtils::Utf8ToUtf16(cmdlinepath).c_str());
     }
 
     dprintf(QT_TRANSLATE_NOOP("DBG", "%ums\n"), GetTickCount() - ticks);
     json_decref(root); //free root
+}
+
+static bool bDbLoadBackup = false;
+static bool bDbLoadFallbackSuccess = false; // set when the .bak actually parsed
+
+// DbLoad only reads the main database file; if it is corrupt we fall back to
+// the .bak copy that DbSave keeps. The flag prevents infinite recursion when
+// the backup itself is corrupt too.
+static void DbLoadFallback(DbLoadSaveType loadType)
+{
+    if(bDbLoadBackup)
+        return;
+
+    String dbpath_backup(dbpath);
+    dbpath_backup.append(".bak");
+    if(!FileExists(dbpath_backup.c_str()))
+        return;
+
+    bDbLoadBackup = true;
+    bDbLoadFallbackSuccess = false;
+    dprintf(QT_TRANSLATE_NOOP("DBG", "Database is corrupt, trying backup...\n"));
+    DbLoad(loadType, dbpath_backup.c_str());
+    bDbLoadBackup = false;
+
+    // Only restore the backup over the main database when the backup actually
+    // parsed. Otherwise we would overwrite a merely truncated (but still
+    // recoverable) main file with garbage from a half-decompressed .bak.
+    if(!bDbLoadFallbackSuccess)
+        return;
+
+    // Restore the (good) backup over the corrupt main database. Without this
+    // the next DbSave would copy the corrupt main file onto .bak again,
+    // losing the only good copy we have.
+    if(!CopyFileW(StringUtils::Utf8ToUtf16(dbpath_backup).c_str(), StringUtils::Utf8ToUtf16(dbpath).c_str(), FALSE))
+    {
+        String error = stringformatinline(StringUtils::sprintf("{winerror@%x}", GetLastError()));
+        dprintf(QT_TRANSLATE_NOOP("DBG", "\nFailed to restore database backup !(GetLastError() = %s)\n"), error.c_str());
+    }
 }
 
 void DbLoad(DbLoadSaveType loadType, const char* dbfile)
@@ -230,6 +308,7 @@ void DbLoad(DbLoadSaveType loadType, const char* dbfile)
         if(useCompression && lzmaStatus != LZ4_SUCCESS && lzmaStatus != LZ4_INVALID_ARCHIVE)
         {
             dputs(QT_TRANSLATE_NOOP("DBG", "\nInvalid database file!"));
+            DbLoadFallback(loadType);
             return;
         }
     }
@@ -256,8 +335,12 @@ void DbLoad(DbLoadSaveType loadType, const char* dbfile)
     if(!root)
     {
         dputs(QT_TRANSLATE_NOOP("DBG", "\nInvalid database file (JSON)!"));
+        DbLoadFallback(loadType);
         return;
     }
+
+    if(bDbLoadBackup)
+        bDbLoadFallbackSuccess = true;
 
     // Load only command line
     if(loadType == DbLoadSaveType::CommandLine || loadType == DbLoadSaveType::All)

@@ -681,13 +681,22 @@ bool cbDebugSetJIT(int argc, char* argv[])
         }
         else if(!_strcmpi(argv[1], "restore"))
         {
-            jit_debugger_cmd = oldjit();
-
             if(!BridgeSettingGet("JIT", "Old", oldjit()))
             {
-                dputs(QT_TRANSLATE_NOOP("DBG", "Error there is no old JIT entry stored."));
-                return false;
+                // x64dbg was set as the JIT debugger without a previous JIT
+                // being saved (e.g. it was the first/only JIT debugger ever
+                // configured). Unset the JIT debugger instead of failing so
+                // the GUI "Set as just-in-time debugger" checkbox can be
+                // turned off again.
+                if(!dbgclearjit(notfound, &actual_arch, NULL))
+                {
+                    dprintf(QT_TRANSLATE_NOOP("DBG", "Error unsetting JIT %s\n"), (actual_arch == x64) ? "x64" : "x32");
+                    return false;
+                }
+                return true;
             }
+
+            jit_debugger_cmd = oldjit();
 
             if(!dbgsetjit(jit_debugger_cmd, notfound, &actual_arch, NULL))
             {

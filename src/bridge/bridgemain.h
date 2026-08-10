@@ -1128,6 +1128,9 @@ BRIDGE_IMPEXP duint DbgMemFindBaseAddr(duint addr, duint* size);
 /// <param name="cmd">The command to execute.</param>
 /// <returns>True if the command was successfully submitted to the command queue. False if the submission failed.</returns>
 BRIDGE_IMPEXP bool DbgCmdExec(const char* cmd);
+BRIDGE_IMPEXP void DbgProcessPendingCommands();
+BRIDGE_IMPEXP bool DbgIsScriptRunning();
+BRIDGE_IMPEXP bool DbgWaitForPause(int timeoutMs);
 
 /// <summary>
 /// Performs synchronous execution of a debugger command. This function call only

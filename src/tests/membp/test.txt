@@ -2,3 +2,6 @@ settingset Events, EntryBreakpoint, 0
 init tests/membp.exe
 membp membp:ReadTarget
 mbassertregion membp:ReadTarget
+cip=membp:ReadSequence
+run
+mbasserthit mem.base(membp:ReadTarget)

@@ -730,8 +730,22 @@ bool cbDebugSetMemoryBpx(int argc, char* argv[])
         }
     }
 
+    // Memory breakpoint is set on the whole memory region containing `addr`
+    // (e.g. the whole .text section). TitanEngine arms every page of the
+    // region and matches the access address against [base, base+size), so a
+    // hit anywhere inside the region is recognized and breaks.
     duint size = 0;
     duint base = MemFindBaseAddr(addr, &size, true);
+    if(base == 0 || size == 0)
+    {
+        // The address is not in the memory map. This happens for a 32-bit
+        // register expression (e.g. `esp`) on x64, where the value is the
+        // truncated low 32 bits of rsp and no region matches. Fall back to a
+        // single-page breakpoint at the containing page instead of failing.
+        constexpr duint pageSize = 0x1000;
+        base = addr & ~(duint)(pageSize - 1);
+        size = pageSize;
+    }
     bool singleshoot = false;
     if(!restore)
         singleshoot = true;
@@ -750,8 +764,25 @@ bool cbDebugSetMemoryBpx(int argc, char* argv[])
     }
     if(!SetMemoryBPXEx(base, size, type, restore, cbMemoryBreakpoint))
     {
-        dputs(QT_TRANSLATE_NOOP("DBG", "Error setting memory breakpoint! (SetMemoryBPXEx)"));
-        return false;
+        // Arming the whole region failed. This happens when the region
+        // contains pages that cannot be protected (e.g. stack guard pages or
+        // reserved ranges). Delete the region breakpoint and retry with a
+        // single page so the breakpoint still works for the selected address.
+        BpDelete(base, BPMEMORY);
+        constexpr duint pageSize = 0x1000;
+        duint pageBase = addr & ~(duint)(pageSize - 1);
+        if(!BpNew(pageBase, true, singleshoot, 0, BPMEMORY, type, 0, pageSize))
+        {
+            dputs(QT_TRANSLATE_NOOP("DBG", "Error setting memory breakpoint! (BpNew)"));
+            return false;
+        }
+        base = pageBase;
+        size = pageSize;
+        if(!SetMemoryBPXEx(base, size, type, restore, cbMemoryBreakpoint))
+        {
+            dputs(QT_TRANSLATE_NOOP("DBG", "Error setting memory breakpoint! (SetMemoryBPXEx)"));
+            return false;
+        }
     }
     dprintf(QT_TRANSLATE_NOOP("DBG", "Memory breakpoint at %p[%p] set!\n"), base, size);
     GuiUpdateAllViews();

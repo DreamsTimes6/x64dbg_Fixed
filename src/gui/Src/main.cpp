@@ -197,6 +197,14 @@ int main(int argc, char* argv[])
     if(x64dbgTranslator.load(QString("x64dbg_%1").arg(gCurrentLocale), path))
         application.installTranslator(&x64dbgTranslator);
 
+    // Optional patch translator for strings that are not yet present in the
+    // official translation files (e.g. newly added UI strings). Installed
+    // after the main translator so it takes precedence for the strings it
+    // contains.
+    QTranslator x64dbgPatchTranslator;
+    if(x64dbgPatchTranslator.load(QString("x64dbg_%1_patch").arg(gCurrentLocale), path))
+        application.installTranslator(&x64dbgPatchTranslator);
+
     // Load accessibility classes
     QAccessible::installFactory(accessibleInterfaceFactory);
 

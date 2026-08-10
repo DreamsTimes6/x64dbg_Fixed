@@ -56,18 +56,30 @@ static void setBpActive(BREAKPOINT & bp, duint addrAdjust = 0)
 
 static BREAKPOINT* findMemoryBreakpoint(duint Address)
 {
-    auto it = breakpoints.upper_bound(BreakpointKey(BPMEMORY, ModHashFromAddr(Address)));
-    if(it == breakpoints.begin())
-        return nullptr;
-
-    // upper_bound always returns an iterator greater than the given key
-    --it;
-
-    if(it->first.first == BPMEMORY)
+    // Scan all memory breakpoints for an exact range match. A plain
+    // upper_bound lookup would miss a breakpoint whose key is not the last
+    // key at or below the hit address when several breakpoints share a page
+    // (e.g. a whole-page breakpoint plus an exact-size breakpoint), so scan
+    // the whole map.
+    //
+    // Note: `bpm`/`membp` breakpoints are recorded with the full page size,
+    // so an exact range match already covers every access inside the armed
+    // page. There is deliberately no page-aligned fallback here: that would
+    // make BpGet treat any breakpoint on the same page as "already set".
+    for(auto & pair : breakpoints)
     {
-        auto & bp = it->second;
+        if(pair.first.first != BPMEMORY)
+            continue;
 
-        duint bpStart = ModBaseFromAddr(Address) + bp.addr; // Breakpoints that are put outside modules (heap, stack, etc), use the actual address and not RVA
+        auto & bp = pair.second;
+
+        // Resolve the breakpoint's absolute start from its OWN module (RVA +
+        // module base), NOT from ModBaseFromAddr(Address). The query address
+        // can belong to a different module (e.g. the GUI painting the memory
+        // map asks about every page): ModBaseFromAddr(Address) would shift
+        // the breakpoint range onto unrelated pages of that other module and
+        // paint breakpoint markers across many regions.
+        duint bpStart = bp.addr + ModBaseFromName(bp.module.c_str()); // Breakpoints that are put outside modules (heap, stack, etc), use the actual address and not RVA
         duint bpEnd = bpStart + bp.memsize;
 
         if(Address >= bpStart && Address < bpEnd)
@@ -968,6 +980,7 @@ void BpCacheLoad(JSON Root, bool migrateCommandCondition)
             breakpoint.memsize = (duint)json_hex_value(json_object_get(value, "memsize"));
         breakpoint.addr = (duint)json_hex_value(json_object_get(value, "address"));
         breakpoint.enabled = json_boolean_value(json_object_get(value, "enabled"));
+        breakpoint.active = true; // Mark the breakpoint as active (loaded from the database)
         breakpoint.titantype = (DWORD)json_hex_value(json_object_get(value, "titantype"));
         if(breakpoint.type == BPHARDWARE)
             TITANSETDRX(breakpoint.titantype, UE_DR7); // DR7 is used as a sentinel value to prevent wrongful deletion

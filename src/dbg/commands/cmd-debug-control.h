@@ -8,7 +8,7 @@ enum HistoryAction
     history_record,
 };
 
-bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history);
+bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resumeSteppedThreads = true);
 bool cbDebugInit(int argc, char* argv[]);
 bool cbDebugStop(int argc, char* argv[]);
 bool cbDebugAttach(int argc, char* argv[]);

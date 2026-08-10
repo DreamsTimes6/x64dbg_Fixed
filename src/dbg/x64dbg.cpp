@@ -472,7 +472,7 @@ static void registercommands()
 
     //misc
     dbgcmdnew("chd", cbInstrChd, false); //Change directory
-    dbgcmdnew("zzz,doSleep", cbInstrZzz, false); //sleep
+    dbgcmdnew("sleep,zzz,doSleep", cbInstrZzz, false); //sleep
 
     dbgcmdnew("HideDebugger,dbh,hide", cbDebugHide, true); //HideDebugger
     dbgcmdnew("loadlib", cbDebugLoadLib, true); //Load DLL
@@ -529,6 +529,26 @@ bool cbCommandProvider(char* cmd, int maxlen)
     strcpy_s(cmd, deflen, newcmd);
     efree(newcmd, "cbCommandProvider:newcmd"); //free allocated command
     return true;
+}
+
+/**
+\brief Process all commands currently queued in the command message queue
+without blocking. headless uses this from GUI_PROCESS_EVENTS so that commands
+issued by plugin worker threads (via DbgCmdExec) are executed while the
+command loop thread is otherwise busy (e.g. awaiting a running script).
+*/
+extern "C" DLL_EXPORT void _dbg_processpendingcommands()
+{
+    MESSAGE msg;
+    while(MsgGet(gMsgQueue, &msg))
+    {
+        char* newcmd = (char*)msg.param1;
+        if(newcmd)
+        {
+            cmddirectexec(newcmd);
+            efree(newcmd, "_dbg_processpendingcommands:newcmd");
+        }
+    }
 }
 
 /**
@@ -715,6 +735,7 @@ public:
     std::vector<std::string> plugins;
     bool testing = false;
     bool help = false;
+    bool rpc = false; // headless JSON RPC mode (accepted here so headless -rpc is not rejected)
 
     CommandlineArguments() : ArgumentParser(ArchValue("x32dbg", "x64dbg"))
     {
@@ -731,6 +752,7 @@ public:
         addString("-cf", commandFile, "Specifies the path and name of a script file. This script file is executed as soon as the debugger is started.");
         addStrings("-plugin", plugins, "Preload a plugin by direct path. Can be specified multiple times.");
         addBool("-testing", testing, "Enable one-shot testing mode.");
+        addBool("-rpc", rpc, "Headless JSON RPC mode (headless only).");
 
         addString("-p", pid, "Alias for -pid.");
         addString("-a", pid, "Alias for -pid.");

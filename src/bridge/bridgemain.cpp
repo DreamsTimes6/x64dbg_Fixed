@@ -224,6 +224,8 @@ BRIDGE_IMPEXP const wchar_t* BridgeInit(BRIDGE_CONFIG* config)
     LOADEXPORT(_dbg_memread);
     LOADEXPORT(_dbg_memwrite);
     LOADEXPORT(_dbg_dbgcmdexec);
+    LOADEXPORT(_dbg_processpendingcommands);
+    LOADEXPORT(_dbg_scriptisrunning);
     LOADEXPORT(_dbg_memmap);
     LOADEXPORT(_dbg_dbgexitsignal);
     LOADEXPORT(_dbg_valfromstring);
@@ -574,6 +576,37 @@ BRIDGE_IMPEXP duint DbgMemFindBaseAddr(duint addr, duint* size)
 BRIDGE_IMPEXP bool DbgCmdExec(const char* cmd)
 {
     return _dbg_dbgcmdexec(cmd);
+}
+
+// Process commands queued by other threads (e.g. plugins) without blocking.
+// Used by headless from GUI_PROCESS_EVENTS to keep plugin-thread commands
+// running while the command loop thread awaits a script.
+BRIDGE_IMPEXP void DbgProcessPendingCommands()
+{
+    _dbg_processpendingcommands();
+}
+
+BRIDGE_IMPEXP bool DbgIsScriptRunning()
+{
+    return _dbg_scriptisrunning();
+}
+
+// Blocks until the debugger is paused (not running) or the timeout elapses.
+// Threads that issue a step command (e.g. DbgCmdExec("sti")) must wait for the
+// step to complete before reading registers via DbgGetRegDumpEx; the step
+// command returns immediately (it only requests the step), so this is the
+// portable way to synchronize:  cmd -> DbgWaitForPause() -> read registers.
+BRIDGE_IMPEXP bool DbgWaitForPause(int timeoutMs)
+{
+    if(timeoutMs < 0)
+        timeoutMs = 0;
+    for(int waited = 0; waited < timeoutMs; waited += 10)
+    {
+        if(!DbgIsRunning())
+            return true;
+        Sleep(10);
+    }
+    return !DbgIsRunning();
 }
 
 // FIXME

@@ -62,6 +62,7 @@ private slots:
     void on_chkNoScriptTimeout_stateChanged(int arg1);
     void on_chkIgnoreInconsistentBreakpoints_toggled(bool checked);
     void on_chkHardcoreThreadSwitchWarning_toggled(bool checked);
+    void on_chkSingleThreadStepping_toggled(bool checked);
     void on_chkVerboseExceptionLogging_toggled(bool checked);
     void on_chkNoWow64SingleStepWorkaround_toggled(bool checked);
     void on_chkDisableAslr_toggled(bool checked);
@@ -213,6 +214,7 @@ private:
         bool engineNoScriptTimeout = false;
         bool engineIgnoreInconsistentBreakpoints = false;
         bool engineHardcoreThreadSwitchWarning = false;
+        bool engineSingleThreadStepping = false;
         bool engineVerboseExceptionLogging = true;
         bool engineNoWow64SingleStepWorkaround = false;
         bool engineDisableAslr = false;

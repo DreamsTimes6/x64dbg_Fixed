@@ -11,6 +11,8 @@ DBGMEMWRITE _dbg_memwrite;
 DBGDBGCMDEXEC _dbg_dbgcmdexec;
 DBGMEMMAP _dbg_memmap;
 DBGDBGEXITSIGNAL _dbg_dbgexitsignal;
+DBGPROCESSPENDINGCOMMANDS _dbg_processpendingcommands;
+DBGSCRIPTISRUNNING _dbg_scriptisrunning;
 DBGVALFROMSTRING _dbg_valfromstring;
 DBGISDEBUGGING _dbg_isdebugging;
 DBGISJUMPGOINGTOEXECUTE _dbg_isjumpgoingtoexecute;

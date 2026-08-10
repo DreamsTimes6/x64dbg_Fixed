@@ -346,6 +346,22 @@ int ThreadResumeAll()
     return count;
 }
 
+int ThreadSuspendAllExceptActive()
+{
+    // SuspendThread does not modify any internal variables
+    SHARED_ACQUIRE(LockThreads);
+
+    auto activeId = ThreadGetId(hActiveThread);
+    int count = 0;
+    for(auto & entry : threadList)
+    {
+        if(entry.second.ThreadId != activeId && SuspendThread(entry.second.Handle) != -1)
+            count++;
+    }
+
+    return count;
+}
+
 ULONG_PTR ThreadGetLocalBase(DWORD ThreadId)
 {
     SHARED_ACQUIRE(LockThreads);

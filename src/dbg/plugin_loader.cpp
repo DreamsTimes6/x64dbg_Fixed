@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <shlwapi.h>
 #include <vector>
+#include <map>
 
 #include "stringformat.h"
 
@@ -51,6 +52,27 @@ static std::vector<PLUG_MENU> gPluginMenuList;
 \brief List of plugin menu entries.
 */
 static std::vector<PLUG_MENUENTRY> gPluginMenuEntryList;
+
+/**
+\brief Maps generated menu command names ("menu_<title>") to their GUI entry
+handle, so a command can trigger the plugin's CBMENUENTRY callback. This makes
+plugin menu functionality reachable from the command line / headless, where
+menus do not exist.
+*/
+static std::map<std::string, int> gMenuEntryCommands;
+
+/**
+\brief Command callback for a generated "menu_<title>" command: fires the
+CBMENUENTRY callback of the plugin that owns the menu entry.
+*/
+static bool cbPluginMenuCommand(int argc, char* argv[])
+{
+    auto found = gMenuEntryCommands.find(argv[0]);
+    if(found == gMenuEntryCommands.end())
+        return false;
+    pluginmenucall(found->second);
+    return true;
+}
 
 /**
 \brief List of plugin exprfunctions.
@@ -989,6 +1011,35 @@ bool pluginmenuaddentry(int hMenu, int hEntry, const char* title)
     newMenu.hEntryPlugin = hEntry;
     newMenu.pluginHandle = pluginHandle;
     gPluginMenuEntryList.push_back(newMenu);
+
+    // Also register a "menu_<title>" command that fires the plugin's
+    // CBMENUENTRY callback. Menus are GUI-only, so this is the way to invoke
+    // plugin menu functionality from the command line / headless.
+    {
+        std::string cmdName = "menu_";
+        for(const char* p = title; *p; p++)
+        {
+            char c = *p;
+            if(isalnum((unsigned char)c))
+                cmdName += (char)tolower((unsigned char)c);
+            else
+                cmdName += '_';
+        }
+        if(cmdName == "menu_")
+            cmdName += "unnamed";
+        std::string base = cmdName;
+        int suffix = 2;
+        while(!dbgcmdnew(cmdName.c_str(), cbPluginMenuCommand, false))
+        {
+            cmdName = StringUtils::sprintf("%s_%d", base.c_str(), suffix++);
+            if(suffix > 100)
+                return true; // give up, menu entry itself is already registered
+        }
+        gMenuEntryCommands[cmdName] = hNewEntry;
+        String plugName;
+        if(findPluginName(pluginHandle, plugName))
+            dprintf(QT_TRANSLATE_NOOP("DBG", "[PLUGIN, %s] Menu command \"%s\" registered!\n"), plugName.c_str(), cmdName.c_str());
+    }
     return true;
 }
 

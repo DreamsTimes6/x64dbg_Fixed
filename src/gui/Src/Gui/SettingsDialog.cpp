@@ -123,6 +123,7 @@ void SettingsDialog::LoadSettings()
     GetSettingBool("Engine", "NoScriptTimeout", &settings.engineNoScriptTimeout);
     GetSettingBool("Engine", "IgnoreInconsistentBreakpoints", &settings.engineIgnoreInconsistentBreakpoints);
     GetSettingBool("Engine", "HardcoreThreadSwitchWarning", &settings.engineHardcoreThreadSwitchWarning);
+    GetSettingBool("Engine", "SingleThreadStepping", &settings.engineSingleThreadStepping);
     GetSettingBool("Engine", "VerboseExceptionLogging", &settings.engineVerboseExceptionLogging);
     GetSettingBool("Engine", "NoWow64SingleStepWorkaround", &settings.engineNoWow64SingleStepWorkaround);
     GetSettingBool("Engine", "DisableAslr", &settings.engineDisableAslr);
@@ -173,6 +174,7 @@ void SettingsDialog::LoadSettings()
     ui->chkNoScriptTimeout->setChecked(settings.engineNoScriptTimeout);
     ui->chkIgnoreInconsistentBreakpoints->setChecked(settings.engineIgnoreInconsistentBreakpoints);
     ui->chkHardcoreThreadSwitchWarning->setChecked(settings.engineHardcoreThreadSwitchWarning);
+    ui->chkSingleThreadStepping->setChecked(settings.engineSingleThreadStepping);
     ui->chkVerboseExceptionLogging->setChecked(settings.engineVerboseExceptionLogging);
     ui->chkNoWow64SingleStepWorkaround->setChecked(settings.engineNoWow64SingleStepWorkaround);
     ui->chkDisableAslr->setChecked(settings.engineDisableAslr);
@@ -411,6 +413,7 @@ void SettingsDialog::SaveSettings()
     BridgeSettingSetUint("Engine", "AnimateInterval", settings.engineAnimateInterval);
     BridgeSettingSetUint("Engine", "VerboseExceptionLogging", settings.engineVerboseExceptionLogging);
     BridgeSettingSetUint("Engine", "HardcoreThreadSwitchWarning", settings.engineHardcoreThreadSwitchWarning);
+    BridgeSettingSetUint("Engine", "SingleThreadStepping", settings.engineSingleThreadStepping);
     BridgeSettingSetUint("Engine", "NoWow64SingleStepWorkaround", settings.engineNoWow64SingleStepWorkaround);
     BridgeSettingSetUint("Engine", "DisableAslr", settings.engineDisableAslr);
     BridgeSettingSetUint("Engine", "DetachOnAttach", settings.engineDetachOnAttach);
@@ -693,39 +696,13 @@ void SettingsDialog::on_chkThreadEntry_stateChanged(int arg1)
 
 void SettingsDialog::on_chkSetJIT_stateChanged(int arg1)
 {
+    // Always allow unchecking. When no old JIT entry is stored (e.g. x64dbg
+    // was the first/only JIT debugger ever configured), `setjit restore`
+    // (issued on OK) clears the registry entry instead of failing, so the
+    // old "NOT FOUND OLD JIT" block that forced the checkbox back on is no
+    // longer needed.
     if(arg1 == Qt::Unchecked)
-    {
-        if(DbgFunctions()->GetJit)
-        {
-            char jit_def_entry[MAX_SETTING_SIZE] = "";
-            QString qsjit_def_entry;
-
-            DbgFunctions()->GetDefJit(jit_def_entry);
-
-            qsjit_def_entry = jit_def_entry;
-
-            // if there are not an OLD JIT Stored GetJit(NULL,) returns false.
-            if((DbgFunctions()->GetJit(NULL, true) == false) && (ui->editJIT->text() == qsjit_def_entry))
-            {
-                /*
-                 * Only do this when the user wants to uncheck the JIT and there is not an OLD JIT Stored
-                 * and the JIT in Windows registry is this debugger.
-                 * Scenario 1: the JIT in Windows registry is this debugger, if the database of the
-                 * debugger was removed and the user wants uncheck the JIT: they can't (this block its executed then)
-                 * -
-                 * Scenario 2: the JIT in Windows registry is NOT this debugger, if the database of the debugger
-                 * was removed and the user in MISC tab wants check and uncheck the JIT checkbox: they can (this block its NOT executed then).
-                */
-                SimpleWarningBox(this, tr("ERROR NOT FOUND OLD JIT"), tr("NOT FOUND OLD JIT ENTRY STORED, USE SETJIT COMMAND"));
-                settings.miscSetJIT = true;
-            }
-            else
-                settings.miscSetJIT = false;
-
-            ui->chkSetJIT->setCheckState(bool2check(settings.miscSetJIT));
-        }
         settings.miscSetJIT = false;
-    }
     else
         settings.miscSetJIT = true;
 }
@@ -824,6 +801,11 @@ void SettingsDialog::on_chkEnableDebugPrivilege_stateChanged(int arg1)
 void SettingsDialog::on_chkHardcoreThreadSwitchWarning_toggled(bool checked)
 {
     settings.engineHardcoreThreadSwitchWarning = checked;
+}
+
+void SettingsDialog::on_chkSingleThreadStepping_toggled(bool checked)
+{
+    settings.engineSingleThreadStepping = checked;
 }
 
 void SettingsDialog::on_chkVerboseExceptionLogging_toggled(bool checked)

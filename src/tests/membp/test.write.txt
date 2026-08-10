@@ -2,3 +2,6 @@ settingset Events, EntryBreakpoint, 0
 init tests/membp.exe
 membp membp:WriteTarget
 mbassertregion membp:WriteTarget
+cip=membp:WriteSequence
+run
+mbasserthit mem.base(membp:WriteTarget)

@@ -227,6 +227,13 @@ struct BufferedWriter
         CloseHandle(hFile);
     }
 
+    // Expose the pending-buffer flush so callers can detect write errors that
+    // would otherwise only surface (and be swallowed) in the destructor.
+    bool Flush()
+    {
+        return flush();
+    }
+
 private:
     HANDLE hFile;
     char* mBuffer;
@@ -237,9 +244,10 @@ private:
     {
         if(!mIndex)
             return true;
-        DWORD written;
-        auto result = WriteFile(hFile, mBuffer, DWORD(mIndex), &written, nullptr);
+        DWORD written = 0;
+        auto toWrite = mIndex;
+        auto result = WriteFile(hFile, mBuffer, DWORD(toWrite), &written, nullptr);
         mIndex = 0;
-        return !!result;
+        return !!result && written == toWrite;
     }
 };

@@ -1,5 +1,58 @@
 # x64dbg
 
+## Fixes applied in this fork
+
+本分支在官方 x64dbg `development` 基础上应用了以下修复（详见各提交与源码注释）：
+
+### 1. 内存断点（Memory Breakpoints）
+| 文件 | 修复内容 |
+|---|---|
+| `src/dbg/commands/cmd-breakpoint-control.cpp` | `bpm`/`membp` 使用整个内存区域（region）语义；地址不在内存映射时（如 x64 下 32 位寄存器表达式）回退到所在页；`SetMemoryBPXEx` 武装失败（栈守卫页/保留区间）时自动降级为单页断点 |
+| `src/dbg/breakpoint.cpp` | `findMemoryBreakpoint` 改为线性扫描精确范围匹配，修复同页多个断点（整页断点 + 精确大小断点）时 `upper_bound` 漏查；加载数据库断点时正确标记 `active` |
+| `src/tests/membp/test*.txt` | 补充断点命中断言（`run` 后 `mbasserthit`） |
+
+### 2. 数据库健壮性（Database）
+| 文件 | 修复内容 |
+|---|---|
+| `src/dbg/database.cpp` | 保存改为**原子写**（先写 `.tmp` 再 `MoveFileExW` 替换），进程中途被杀不再留下半截损坏的 `.dd32`；主库损坏时**自动回退加载 `.bak`** 并恢复主库；清空数据时同步删除备份；备份/恢复失败打印错误 |
+| `src/dbg/filemap.h` | `BufferedWriter` 暴露 `Flush()` 并检测部分写入，尾部缓冲写盘错误不再被析构函数吞掉 |
+
+### 3. 即时调试器（JIT）取消
+| 文件 | 修复内容 |
+|---|---|
+| `src/dbg/jit.cpp` / `jit.h` | 新增 `dbgclearjit`：支持删除注册表 `AeDebug\Debugger` 值 |
+| `src/dbg/commands/cmd-misc.cpp` | `setjit restore` 在没有保存旧 JIT 时（首次设置/重复设置）不再报错，改为清除注册表 JIT —— GUI"设为即时调试器"取消不再失败 |
+| `src/gui/Src/Gui/SettingsDialog.cpp` | 移除取消勾选时的强制拦截（`NOT FOUND OLD JIT` 警告块） |
+
+### 4. 单线程步进（Single-Threaded Stepping）
+| 文件 | 修复内容 |
+|---|---|
+| `src/dbg/thread.cpp` / `thread.h` | 新增 `ThreadSuspendAllExceptActive()` |
+| `src/dbg/commands/cmd-debug-control.cpp/.h` | 新增设置 `Engine.SingleThreadStepping`：`step`/`stepover`/`stepout` 时自动挂起其他线程（等效 OllyDbg 单线程步进），`run` 时恢复；`stop` 时清理 |
+| `src/gui/Src/Gui/SettingsDialog.*` | 选项页新增"单步调试时挂起其他线程"勾选框 |
+
+### 5. 插件菜单命令化（headless 可用）
+| 文件 | 修复内容 |
+|---|---|
+| `src/dbg/plugin_loader.cpp` | 插件 `_plugin_menuaddentry` 注册成功后自动生成 `menu_<title>` 命令，CLI/headless 下可直接调用插件菜单功能（触发 `CBMENUENTRY`） |
+
+### 6. headless JSON RPC 模式
+| 文件 | 修复内容 |
+|---|---|
+| `src/headless/headless.cpp` | 新增 `-rpc` 模式：stdin/stdout JSON Lines 协议（`ping`/`get`/`eval`/`cmd`/`wait`/`exit`），支持日志/状态事件，`cmd` 支持同步等待 |
+| `src/dbg/x64dbg.cpp` | 新增 `_dbg_processpendingcommands` 导出（处理插件线程排队的命令）；`sleep` 命令别名 |
+| `src/dbg/simplescript.cpp` | 新增 `_dbg_scriptisrunning` 导出（headless 退出时等待脚本结束） |
+| `src/bridge/*` | 导出 `DBGPROCESSPENDINGCOMMANDS` / `DBGSCRIPTISRUNNING` bridge 函数 |
+| `src/headless/x64dbg_rpc.py` 等 | Python 客户端示例与 RPC 文档 |
+
+### 7. 界面中文化补丁
+| 文件 | 修复内容 |
+|---|---|
+| `src/gui/Src/main.cpp` | 支持加载 `x64dbg_<locale>_patch.qm` 补丁翻译（覆盖官方翻译缺失的新字符串） |
+| `src/gui/translations/x64dbg_zh_CN_patch.ts/.qm` | 官方 `zh_CN` 翻译未覆盖的 11 条选项字符串补译（单线程步进、分离进程、十六进制表示法等） |
+
+---
+
 <img width="100" src="https://github.com/x64dbg/x64dbg/raw/development/src/bug_black.png"/>
 
 [![Crowdin](https://d322cqt584bo4o.cloudfront.net/x64dbg/localized.svg)](https://translate.x64dbg.com) [![Download x64dbg](https://img.shields.io/sourceforge/dm/x64dbg.svg)](https://sourceforge.net/projects/x64dbg/files/latest/download) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/x64dbg/x64dbg)

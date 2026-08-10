@@ -382,6 +382,13 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="chkSingleThreadStepping">
+         <property name="text">
+          <string>Suspend other threads while single-stepping</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QCheckBox" name="chkVerboseExceptionLogging">
          <property name="text">
           <string>Enable Verbose Exception Logging</string>
