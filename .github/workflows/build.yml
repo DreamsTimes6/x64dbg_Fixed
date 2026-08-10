@@ -111,6 +111,8 @@ jobs:
   package:
     needs: [cmake, docs]
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -175,3 +177,20 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           compression-level: 9
+
+      - name: Create Snapshot Archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path release\release\* -DestinationPath x64dbg-snapshot.zip -Force
+          if (Test-Path release\pdb) { Compress-Archive -Path release\pdb\* -DestinationPath x64dbg-snapshot-symbols.zip -Force }
+
+      - name: Publish Snapshot Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete snapshot --yes 2>$null | Out-Null
+          $assets = @('x64dbg-snapshot.zip')
+          if (Test-Path x64dbg-snapshot-symbols.zip) { $assets += 'x64dbg-snapshot-symbols.zip' }
+          gh release create snapshot $assets --title "x64dbg snapshot" --notes "Automated snapshot build from the development branch (x64 + x86), including AI command-line (headless -rpc) support." --latest=false
