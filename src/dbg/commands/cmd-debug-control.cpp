@@ -28,7 +28,7 @@ static bool bStepSuspendedOthers = false;
 // Set by "run <addr>" (F4) so a breakpoint hit exactly at the target address
 // pauses cleanly without triggering the breakpoint's own actions.
 extern duint gRunToAddress;
-extern bool gRunToUseHardware;
+extern DWORD gRunToThreadId;
 extern bool gRunToSetBPX;
 
 static bool isInt3Exception()
@@ -89,53 +89,32 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
                 // all its actions (commands/log/hit count). No run-to target
                 // is recorded and no extra breakpoint is set.
                 gRunToAddress = 0;
-                gRunToUseHardware = false;
+                gRunToThreadId = 0;
                 gRunToSetBPX = false;
             }
             else
             {
                 // No enabled breakpoint at the target (none, or a disabled
-                // one): arm a thread-local hardware breakpoint so only the
-                // current thread triggers the run-to, and F4 pauses cleanly
-                // without touching the disabled breakpoint's state. SetBPX
-                // (process-wide INT3) is only a fallback when no hardware
-                // register is free.
+                // one): arm a one-shot INT3 (process-wide) and record the
+                // initiating thread, so only that thread triggers the run-to
+                // (other threads hitting the INT3 re-arm it and keep going).
+                // F4 pauses cleanly and does not touch a disabled
+                // breakpoint's state.
                 gRunToAddress = runToAddr;
-                gRunToUseHardware = false;
+                gRunToThreadId = ThreadGetId(hActiveThread);
                 gRunToSetBPX = false;
-                DWORD drx = 0;
-                if(GetUnusedHardwareBreakPointRegister(&drx))
-                {
-                    int titantype = 0;
-                    TITANSETDRX(titantype, drx);
-                    TITANSETTYPE(titantype, UE_HARDWARE_EXECUTE);
-                    TITANSETSIZE(titantype, UE_HARDWARE_SIZE_1);
-                    if(BpNew(runToAddr, true, true, 0, BPHARDWARE, titantype, "") &&
-                       SetHardwareBreakPoint(runToAddr, drx, UE_HARDWARE_EXECUTE, UE_HARDWARE_SIZE_1, cbHardwareBreakpoint))
-                        gRunToUseHardware = true;
-                    else
-                        BpDelete(runToAddr, BPHARDWARE);
-                }
-                if(!gRunToUseHardware && SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint))
+                if(SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint))
                     gRunToSetBPX = true;
             }
         }
     }
     else
     {
-        // Plain run (F9): clean up any unfinished run-to breakpoint (hardware
-        // or the SetBPX fallback).
-        if(gRunToUseHardware && gRunToAddress)
-        {
-            BREAKPOINT hwBp;
-            if(BpGet(gRunToAddress, BPHARDWARE, nullptr, &hwBp) && TITANDRXVALID(hwBp.titantype))
-                DeleteHardwareBreakPoint(TITANGETDRX(hwBp.titantype));
-            BpDelete(gRunToAddress, BPHARDWARE);
-        }
+        // Plain run (F9): clean up any unfinished run-to INT3.
         if(gRunToSetBPX && gRunToAddress)
             DeleteBPX(gRunToAddress);
-        gRunToUseHardware = false;
         gRunToSetBPX = false;
+        gRunToThreadId = 0;
         gRunToAddress = 0;
     }
     // Resume threads suspended by single-threaded stepping (step commands

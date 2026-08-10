@@ -51,18 +51,13 @@ static duint pDebuggedEntry = 0;
 static bool bRepeatIn = false;
 static duint stepRepeat = 0;
 
-// F4 "run to address" target. When a breakpoint is hit exactly at this
-// address we pause cleanly and skip the breakpoint's own actions (commands,
-// log, hit count, conditions), so an existing F2 breakpoint at the same
-// address is not "triggered" by a run-to operation.
+// F4 "run-to" state. A process-wide one-shot INT3 (SetBPX) is armed at the
+// target, and only the thread that initiated F4 (gRunToThreadId) is allowed
+// to stop: if another thread hits the INT3 first, the byte is re-armed and
+// execution continues. The INT3 is restored by TitanEngine on hit; a plain
+// run (F9) cleans up if the run-to never completed.
 duint gRunToAddress = 0;
-
-// When F4 targets an address it arms a thread-local hardware breakpoint (so
-// only the current/active thread triggers the run-to), unless the target
-// already has an ENABLED software breakpoint — in that case F4 does nothing
-// special and the breakpoint fires normally with all its actions. SetBPX is
-// only a fallback when no hardware register is free.
-bool gRunToUseHardware = false;
+DWORD gRunToThreadId = 0;
 bool gRunToSetBPX = false;
 static bool bIsAttached = false;
 static bool bPauseAtAttach = false;
@@ -976,26 +971,24 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
     if(gRunToAddress && breakpointExceptionAddress == gRunToAddress)
     {
         duint runToAddr = gRunToAddress;
+        // Thread-local run-to: only the F4-initiating thread may stop. If
+        // another thread hits the one-shot INT3 first, re-arm it and keep
+        // running without pausing.
+        if(gRunToThreadId && GetDebugData()->dwThreadId != gRunToThreadId)
+        {
+            EXCLUSIVE_RELEASE();
+            SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint);
+            return; // don't pause — the debug loop continues
+        }
         gRunToAddress = 0;
+        gRunToThreadId = 0;
         bool removeRunToSs = bpPtr && bpPtr->singleshoot && bpPtr->type == BPNORMAL;
-        bool useHw = gRunToUseHardware;
-        bool setBpx = gRunToSetBPX;
-        gRunToUseHardware = false;
-        gRunToSetBPX = false;
+        gRunToSetBPX = false; // TitanEngine restored the one-shot INT3 on hit
         // release the breakpoint lock to prevent deadlocks during the wait
         EXCLUSIVE_RELEASE();
         // Remove the run-to singleshot breakpoint (BpDelete takes the lock)
         if(removeRunToSs)
             BpDelete(breakpointExceptionAddress, BPNORMAL);
-        // Remove the run-to hardware breakpoint and free its DR register
-        if(useHw)
-        {
-            BREAKPOINT hwBp;
-            if(BpGet(runToAddr, BPHARDWARE, nullptr, &hwBp) && TITANDRXVALID(hwBp.titantype))
-                DeleteHardwareBreakPoint(TITANGETDRX(hwBp.titantype));
-            BpDelete(runToAddr, BPHARDWARE);
-        }
-        // SetBPX fallback: TitanEngine already restored the one-shot INT3.
         DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
         //lock
         lock(WAITID_RUN);
