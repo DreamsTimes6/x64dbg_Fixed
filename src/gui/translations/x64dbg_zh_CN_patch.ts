@@ -36,6 +36,14 @@
         <translation>单步调试时挂起其他线程</translation>
     </message>
     <message>
+        <source>AI Command Line:</source>
+        <translation>AI 命令行：</translation>
+    </message>
+    <message>
+        <source>headless -rpc JSON interface for AI/script automation</source>
+        <translation>headless -rpc JSON 接口，供 AI/脚本自动化调用</translation>
+    </message>
+    <message>
         <source>Use trace coverage data to assist more accurate disassembling (experimental)</source>
         <translation>使用轨迹覆盖率数据辅助更精确的反汇编（实验性）</translation>
     </message>
