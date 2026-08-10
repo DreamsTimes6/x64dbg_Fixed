@@ -193,4 +193,21 @@ jobs:
           gh release delete snapshot --yes 2>$null | Out-Null
           $assets = @('x64dbg_Fixed-snapshot.zip')
           if (Test-Path x64dbg_Fixed-snapshot-symbols.zip) { $assets += 'x64dbg_Fixed-snapshot-symbols.zip' }
-          gh release create snapshot $assets --title "x64dbg_Fixed snapshot" --notes "Automated snapshot build of the x64dbg_Fixed fork from the development branch (x64 + x86), including AI command-line (headless -rpc) support." --latest=false
+          $notes = @'
+x64dbg_Fixed 自动快照构建（development 分支，x64 + x86）
+
+本包相对官方 x64dbg 的修复与增强：
+
+- 内存断点：region 语义 + 地址不在映射时回退单页 + 武装失败自动降级单页
+- 内存断点查找：同页多个断点精确命中
+- 数据库：原子写入（.tmp + MoveFileEx），进程被杀不再损坏 .dd32；主库损坏自动回退 .bak
+- JIT：取消"设为即时调试器"不再失败（无旧值时清除注册表）
+- 单线程步进（选项"单步调试时挂起其他线程"）：step/stepover/stepout/F4 锁定当前线程，其他线程挂起，不再乱跳；run（F9）恢复
+- F4 运行到地址优先于已有断点：命中只暂停，不触发普通断点的命令/日志/命中计数
+- 插件菜单命令化（menu_<title>），headless 下可调用插件功能
+- headless JSON-RPC（-rpc）：AI/脚本命令行调试接口（ping/get/eval/cmd/wait/exit + sync）
+- 界面中文补丁：官方 zh_CN 缺失的选项文本补译
+
+完整说明见仓库 README.md（"Fixes applied in this fork"）。
+'@
+          gh release create snapshot $assets --title "x64dbg_Fixed snapshot" --notes $notes --latest=false

@@ -43,12 +43,13 @@
 | `src/dbg/commands/cmd-misc.cpp` | `setjit restore` 在没有保存旧 JIT 时（首次设置 / 重复设置）不再报错，改为清除注册表 JIT —— GUI“设为即时调试器”取消不再失败 |
 | `src/gui/Src/Gui/SettingsDialog.cpp` | 移除取消勾选时的强制拦截（`NOT FOUND OLD JIT` 警告块） |
 
-### 4. 单线程步进（Single-Threaded Stepping）
+### 4. 单线程步进与 F4 线程锁定（Single-Threaded Stepping）
 
 | 文件 | 修复内容 |
 |---|---|
 | `src/dbg/thread.cpp` / `thread.h` | 新增 `ThreadSuspendAllExceptActive()` |
-| `src/dbg/commands/cmd-debug-control.cpp/.h` | 新增设置 `Engine.SingleThreadStepping`：`step`/`stepover`/`stepout` 时自动挂起其他线程（等效 OllyDbg 单线程步进），`run` 时恢复；`stop` 时清理 |
+| `src/dbg/commands/cmd-debug-control.cpp/.h` | 新增设置 `Engine.SingleThreadStepping`：`step`/`stepover`/`stepout` 时自动挂起其他线程（等效 OllyDbg 单线程步进）；**F4（`run <addr>`）同样锁定其他线程**（只当前线程跑到目标地址），`run`（F9）恢复所有线程；`stop` 时清理 |
+| `src/dbg/debugger.cpp` | 新增 `gRunToAddress`：**F4 运行到地址优先于已有断点**——命中目标地址时干净暂停，**跳过已有 F2 断点的命令/日志/命中计数**（F4 不被普通断点"劫持"） |
 | `src/gui/Src/Gui/SettingsDialog.*` | 选项页新增“单步调试时挂起其他线程”勾选框 |
 
 ### 5. 插件菜单命令化（headless 可用）
