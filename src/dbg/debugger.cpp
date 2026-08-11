@@ -983,19 +983,28 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
         // running without pausing.
         if(gRunToThreadId && GetDebugData()->dwThreadId != gRunToThreadId)
         {
+            // Other thread hit the run-to INT3. Do NOT re-arm it here: the
+            // non-singleshoot INT3 is kept armed by TitanEngine automatically,
+            // and re-writing 0xCC inside the hit callback races with its
+            // single-step machinery (the stepped-over instruction would hit
+            // the fresh INT3 again → infinite loop).
             EXCLUSIVE_RELEASE();
-            SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint);
             return; // don't pause — the debug loop continues
         }
         gRunToAddress = 0;
         gRunToThreadId = 0;
         bool removeRunToSs = bpPtr && bpPtr->singleshoot && bpPtr->type == BPNORMAL;
-        gRunToSetBPX = false; // TitanEngine restored the one-shot INT3 on hit
+        bool setBpx = gRunToSetBPX;
+        gRunToSetBPX = false; // the run-to INT3 is removed below
         // release the breakpoint lock to prevent deadlocks during the wait
         EXCLUSIVE_RELEASE();
         // Remove the run-to singleshot breakpoint (BpDelete takes the lock)
         if(removeRunToSs)
             BpDelete(breakpointExceptionAddress, BPNORMAL);
+        // Remove the F4 one-shot INT3 (kept armed by TitanEngine as a
+        // non-singleshoot breakpoint) so it stops firing.
+        if(setBpx)
+            DeleteBPX(runToAddr);
         DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
         //lock
         lock(WAITID_RUN);
@@ -1034,6 +1043,14 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
     if(bptype != BPDLL && bptype != BPEXCEPTION)
         bp.addr += ModBaseFromName(bp.module.c_str());
     bp.active = true; //a breakpoint that has been hit is active
+
+    // Thread-specific breakpoint: only the bound thread may trigger it.
+    // When another thread hits it, do NOT re-arm the INT3 here — TitanEngine
+    // keeps a non-singleshoot INT3 armed on its own; re-writing 0xCC inside
+    // the hit callback would race with its single-step machinery (infinite
+    // loop). Just continue without pausing.
+    if(bp.threadId && GetDebugData()->dwThreadId != bp.threadId)
+        return;
 
     varset("$breakpointcounter", bp.hitcount, true); //save the breakpoint counter as a variable
 
@@ -1428,7 +1445,7 @@ void cbStep()
         gRunToPendingF4 = false;
         gRunToAddress = addr;
         gRunToThreadId = tid;
-        gRunToSetBPX = SetBPX(addr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint);
+        gRunToSetBPX = SetBPX(addr, UE_BREAKPOINT, cbUserBreakpoint);
         // Trace record
         dbgtraceexecute(CIP);
         GuiSetDebugStateAsync(running);

@@ -1,5 +1,6 @@
 #include <QClipboard>
 #include <QRegularExpression>
+#include <QInputDialog>
 #include "BreakpointsView.h"
 #include "EditBreakpointDialog.h"
 #include "Bridge.h"
@@ -85,6 +86,14 @@ void BreakpointsView::setupContextMenu()
         if(!isValidBp())
             return false;
         return selectedBp().hitCount > 0;
+    });
+    mMenuBuilder->addAction(makeAction(DIcon("breakpoint_toggle"), tr("Toggle Process/Thread Breakpoint"), SLOT(toggleBpThreadSlot())), [this](QMenu*)
+    {
+        return isValidBp() && selectedBp().type == bp_normal;
+    });
+    mMenuBuilder->addAction(makeAction(DIcon("breakpoint_edit_alt"), tr("Set Thread..."), SLOT(setBpThreadSlot())), [this](QMenu*)
+    {
+        return isValidBp() && selectedBp().type == bp_normal;
     });
     mMenuBuilder->addSeparator();
 
@@ -557,7 +566,9 @@ void BreakpointsView::updateBreakpointsSlot()
             return result;
         };
 
-        setCellContent(row, ColType, QString());
+        // Type column: process-wide breakpoints stay empty (as upstream),
+        // thread-specific breakpoints show "T: <thread id>" in decimal.
+        setCellContent(row, ColType, bp.threadId ? QString("T: %1").arg(bp.threadId) : QString());
         setCellUserdata(row, ColType, bp.type);
         setCellContent(row, ColAddr, addrText());
         setCellUserdata(row, ColAddr, row);
@@ -659,6 +670,25 @@ void BreakpointsView::editBreakpointSlot()
     {
         Breakpoints::editBP(bp.type, bp.active ? QString() : bp.module, bp.addr, this);
     }
+}
+
+void BreakpointsView::toggleBpThreadSlot()
+{
+    if(!isValidBp())
+        return;
+    auto bp = selectedBp();
+    DbgCmdExecDirect(QString("bpthread %1").arg(ToPtrString(bp.addr)).toUtf8().constData());
+}
+
+void BreakpointsView::setBpThreadSlot()
+{
+    if(!isValidBp())
+        return;
+    auto bp = selectedBp();
+    bool ok = false;
+    int tid = QInputDialog::getInt(nullptr, tr("Set Thread"), tr("Thread ID:"), bp.threadId, 0, INT_MAX, 1, &ok);
+    if(ok && tid > 0)
+        DbgCmdExecDirect(QString("bpt %1, %2").arg(ToPtrString(bp.addr)).arg(tid).toUtf8().constData());
 }
 
 void BreakpointsView::resetHitCountBreakpointSlot()

@@ -2,6 +2,7 @@
 #include "MenuBuilder.h"
 #include <QAction>
 #include <QMessageBox>
+#include <QInputDialog>
 #include <QFile>
 #include "StringUtil.h"
 #include "MiscUtil.h"
@@ -98,14 +99,20 @@ void CommonActions::build(MenuBuilder* builder, int actions)
         {
             QAction* toggleBreakpointAction;
             QAction* editSoftwareBreakpointAction;
+            QAction* threadBpAction;
+            QAction* threadBpChooseAction;
+            QAction* toggleBpThreadAction;
             QAction* setHwBreakpointAction;
             QAction* removeHwBreakpointAction;
             QMenu* replaceSlotMenu;
             QAction* replaceSlotAction[4];
         } hodl;
 
-        hodl.toggleBreakpointAction = makeShortcutAction(DIcon("breakpoint_toggle"), tr("Toggle"), std::bind(&CommonActions::toggleInt3BPActionSlot, this), "ActionToggleBreakpoint");
+        hodl.toggleBreakpointAction = makeShortcutAction(DIcon("breakpoint_toggle"), tr("Process Breakpoint"), std::bind(&CommonActions::toggleInt3BPActionSlot, this), "ActionToggleBreakpoint");
         hodl.editSoftwareBreakpointAction = makeShortcutAction(DIcon("breakpoint_edit_alt"), tr("Edit"), std::bind(&CommonActions::editSoftBpActionSlot, this), "ActionEditBreakpoint");
+        hodl.threadBpAction = makeShortcutAction(DIcon("breakpoint_toggle"), tr("Thread Breakpoint (Current Thread)"), std::bind(&CommonActions::threadBpActionSlot, this), "ActionSetThreadBp");
+        hodl.threadBpChooseAction = makeShortcutAction(DIcon("breakpoint_edit_alt"), tr("Thread Breakpoint (Choose Thread...)"), std::bind(&CommonActions::threadBpChooseActionSlot, this), "ActionSetThreadBpChoose");
+        hodl.toggleBpThreadAction = makeShortcutAction(DIcon("breakpoint_toggle"), tr("Toggle Process/Thread Breakpoint"), std::bind(&CommonActions::toggleBpThreadActionSlot, this), "ActionToggleThreadBp");
         hodl.setHwBreakpointAction = makeShortcutAction(DIcon("breakpoint_execute"), tr("Set Hardware on Execution"), std::bind(&CommonActions::toggleHwBpActionSlot, this), "ActionSetHwBpE");
         hodl.removeHwBreakpointAction = makeShortcutAction(DIcon("breakpoint_remove"), tr("Remove Hardware"), std::bind(&CommonActions::toggleHwBpActionSlot, this), "ActionRemoveHwBp");
 
@@ -129,6 +136,12 @@ void CommonActions::build(MenuBuilder* builder, int actions)
             menu->addAction(hodl.editSoftwareBreakpointAction);
 
             menu->addAction(hodl.toggleBreakpointAction);
+
+            menu->addSeparator();
+            menu->addAction(hodl.threadBpAction);
+            menu->addAction(hodl.threadBpChooseAction);
+            menu->addAction(hodl.toggleBpThreadAction);
+            menu->addSeparator();
 
             if((bpType & bp_hardware) == bp_hardware)
             {
@@ -335,6 +348,37 @@ bool CommonActions::WarningBoxNotExecutable(const QString & text, duint va) cons
             return false;
     }
     return true;
+}
+
+void CommonActions::threadBpActionSlot()
+{
+    if(!DbgIsDebugging())
+        return;
+    auto selection = mGetSelection();
+    if(selection)
+        DbgCmdExecDirect(QString("bpt %1").arg(ToPtrString(selection)).toUtf8().constData());
+}
+
+void CommonActions::threadBpChooseActionSlot()
+{
+    if(!DbgIsDebugging())
+        return;
+    auto selection = mGetSelection();
+    if(!selection)
+        return;
+    bool ok = false;
+    int tid = QInputDialog::getInt(nullptr, tr("Thread Breakpoint"), tr("Thread ID:"), 0, 0, INT_MAX, 1, &ok);
+    if(ok && tid > 0)
+        DbgCmdExecDirect(QString("bpt %1, %2").arg(ToPtrString(selection)).arg(tid).toUtf8().constData());
+}
+
+void CommonActions::toggleBpThreadActionSlot()
+{
+    if(!DbgIsDebugging())
+        return;
+    auto selection = mGetSelection();
+    if(selection)
+        DbgCmdExecDirect(QString("bpthread %1").arg(ToPtrString(selection)).toUtf8().constData());
 }
 
 void CommonActions::toggleInt3BPActionSlot()

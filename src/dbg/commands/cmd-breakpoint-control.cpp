@@ -2,6 +2,7 @@
 #include "console.h"
 #include "memory.h"
 #include "debugger.h"
+#include "thread.h"
 #include "exception.h"
 #include "value.h"
 
@@ -141,6 +142,73 @@ bool cbDebugSetBPX(int argc, char* argv[]) //bp addr [,name [,type]]
         dprintf(QT_TRANSLATE_NOOP("DBG", "Breakpoint at %p (%s) set!\n"), addr, bpname);
     else
         dprintf(QT_TRANSLATE_NOOP("DBG", "Breakpoint at %p set!\n"), addr);
+    return true;
+}
+
+bool cbDebugBpt(int argc, char* argv[]) //bpt addr [,tid] — thread-specific software breakpoint
+{
+    if(IsArgumentsLessThan(argc, 2))
+        return false;
+    duint addr = 0;
+    if(!valfromstring(argv[1], &addr))
+        return false;
+    // "Current thread" = the active thread selected in the GUI (hActiveThread),
+    // falling back to the debug data thread if no active thread handle exists.
+    DWORD tid = hActiveThread ? ThreadGetId(hActiveThread) : GetDebugData()->dwThreadId;
+    if(argc > 2)
+    {
+        duint t = 0;
+        if(valfromstring(argv[2], &t))
+            tid = (DWORD)t;
+    }
+    if(!BpGet(addr, BPNORMAL, nullptr, nullptr))
+    {
+        short oldbytes;
+        if(!MemRead(addr, &oldbytes, sizeof(short)))
+        {
+            dprintf(QT_TRANSLATE_NOOP("DBG", "Error setting breakpoint at %p! (memread)\n"), addr);
+            return false;
+        }
+        if(!BpNew(addr, true, false, oldbytes, BPNORMAL, UE_BREAKPOINT, ""))
+        {
+            dprintf(QT_TRANSLATE_NOOP("DBG", "Error setting breakpoint at %p! (bpnew)\n"), addr);
+            return false;
+        }
+        if(!SetBPX(addr, UE_BREAKPOINT, cbUserBreakpoint))
+        {
+            dprintf(QT_TRANSLATE_NOOP("DBG", "Error setting breakpoint at %p! (SetBPX)\n"), addr);
+            BpDelete(addr, BPNORMAL);
+            return false;
+        }
+    }
+    if(!BpSetThreadId(addr, BPNORMAL, tid))
+        return false;
+    GuiUpdateAllViews();
+    dprintf(QT_TRANSLATE_NOOP("DBG", "Thread breakpoint at %p (thread %X) set!\n"), addr, tid);
+    return true;
+}
+
+bool cbDebugBpthread(int argc, char* argv[]) //bpthread addr — toggle process-wide <-> thread-specific
+{
+    if(IsArgumentsLessThan(argc, 2))
+        return false;
+    duint addr = 0;
+    if(!valfromstring(argv[1], &addr))
+        return false;
+    BREAKPOINT bp;
+    if(!BpGet(addr, BPNORMAL, nullptr, &bp))
+    {
+        dputs(QT_TRANSLATE_NOOP("DBG", "No software breakpoint at this address!"));
+        return false;
+    }
+    DWORD newTid = bp.threadId ? 0 : (hActiveThread ? ThreadGetId(hActiveThread) : GetDebugData()->dwThreadId);
+    if(!BpSetThreadId(addr, BPNORMAL, newTid))
+        return false;
+    GuiUpdateAllViews();
+    if(newTid)
+        dprintf(QT_TRANSLATE_NOOP("DBG", "Breakpoint at %p is now thread-specific (thread %X)\n"), addr, newTid);
+    else
+        dprintf(QT_TRANSLATE_NOOP("DBG", "Breakpoint at %p is now process-wide\n"), addr);
     return true;
 }
 

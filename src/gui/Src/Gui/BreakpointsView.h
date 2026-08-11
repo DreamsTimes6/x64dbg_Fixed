@@ -30,6 +30,8 @@ private slots:
     void toggleBreakpointSlot();
     void editBreakpointSlot();
     void resetHitCountBreakpointSlot();
+    void toggleBpThreadSlot();
+    void setBpThreadSlot();
     void enableAllBreakpointsSlot();
     void disableAllBreakpointsSlot();
     void removeAllBreakpointsSlot();

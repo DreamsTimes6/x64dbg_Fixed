@@ -44,6 +44,7 @@ struct BREAKPOINT
     uint32 hitcount = 0;          // hit counter
     bool fastResume = false;      // if true, debugger resumes without any GUI/Script/Plugin interaction.
     duint memsize = 0;            // memory breakpoint size (not implemented)
+    DWORD threadId = 0;           // 0 = process-wide; nonzero = only this thread triggers the breakpoint
 };
 
 // Breakpoint enumeration callback
@@ -68,6 +69,7 @@ bool BpSetCommandCondition(duint Address, BP_TYPE Type, const char* Condition);
 bool BpSetLogFile(duint Address, BP_TYPE Type, const char* LogFile);
 bool BpSetFastResume(duint Address, BP_TYPE Type, bool fastResume);
 bool BpSetSingleshoot(duint Address, BP_TYPE Type, bool singleshoot);
+bool BpSetThreadId(duint Address, BP_TYPE Type, DWORD threadId);
 bool BpEnumAll(BPENUMCALLBACK EnumCallback, const char* Module, duint base = 0);
 bool BpSetSilent(duint Address, BP_TYPE Type, bool silent);
 duint BpGetDLLBpAddr(const char* fileName);

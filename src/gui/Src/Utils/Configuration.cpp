@@ -469,8 +469,11 @@ Configuration::Configuration() : QObject(), noMoreMsgbox(false)
     defaultShortcuts.insert("ActionFindStrings", Shortcut({tr("Actions"), tr("Find Strings")}, "", true));
     defaultShortcuts.insert("ActionFindStringsModule", Shortcut({tr("Actions"), tr("Find Strings in Current Module")}, "Shift+D", true));
     defaultShortcuts.insert("ActionFindIntermodularCalls", Shortcut({tr("Actions"), tr("Find Intermodular Calls")}, "", true));
-    defaultShortcuts.insert("ActionToggleBreakpoint", Shortcut({tr("Actions"), tr("Toggle Breakpoint")}, "F2"));
+    defaultShortcuts.insert("ActionToggleBreakpoint", Shortcut({tr("Actions"), tr("Process Breakpoint")}, "F2"));
     defaultShortcuts.insert("ActionEditBreakpoint", Shortcut({tr("Actions"), tr("Set Conditional Breakpoint")}, "Shift+F2"));
+    defaultShortcuts.insert("ActionSetThreadBp", Shortcut({tr("Actions"), tr("Thread Breakpoint (Current Thread)")}, ""));
+    defaultShortcuts.insert("ActionSetThreadBpChoose", Shortcut({tr("Actions"), tr("Thread Breakpoint (Choose Thread...)")}, ""));
+    defaultShortcuts.insert("ActionToggleThreadBp", Shortcut({tr("Actions"), tr("Toggle Process/Thread Breakpoint")}, ""));
     defaultShortcuts.insert("ActionToggleBookmark", Shortcut({tr("Actions"), tr("Toggle Bookmark")}, "Ctrl+D"));
     defaultShortcuts.insert("ActionDeleteBreakpoint", Shortcut({tr("Actions"), tr("Delete Breakpoint")}, "Delete"));
     defaultShortcuts.insert("ActionEnableDisableBreakpoint", Shortcut({tr("Actions"), tr("Enable/Disable Breakpoint")}, "Space"));

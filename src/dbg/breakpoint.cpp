@@ -608,6 +608,19 @@ bool BpSetSingleshoot(duint Address, BP_TYPE Type, bool singleshoot)
     return true;
 }
 
+bool BpSetThreadId(duint Address, BP_TYPE Type, DWORD threadId)
+{
+    ASSERT_DEBUGGING("Command function call");
+    EXCLUSIVE_ACQUIRE(LockBreakpoints);
+
+    BREAKPOINT* bpInfo = BpInfoFromAddr(Type, Address);
+    if(!bpInfo)
+        return false;
+
+    bpInfo->threadId = threadId;
+    return true;
+}
+
 bool BpSetSilent(duint Address, BP_TYPE Type, bool silent)
 {
     ASSERT_DEBUGGING("Command function call");
@@ -886,6 +899,7 @@ void BpToBridge(const BREAKPOINT* Bp, BRIDGEBP* BridgeBp)
     BridgeBp->fastResume = Bp->fastResume;
     BridgeBp->silent = Bp->silent;
     BridgeBp->hitCount = Bp->hitcount;
+    BridgeBp->threadId = Bp->threadId;
 
     BridgeBp->type = BpTypeToBridge(Bp->type);
     BridgeBp->slot = (unsigned short)BpToBridgeHwSlot(*Bp);
@@ -930,6 +944,7 @@ void BpCacheSave(JSON Root)
         json_object_set_new(jsonObj, "commandCondition", json_string(breakpoint.commandCondition));
         json_object_set_new(jsonObj, "logFile", json_string(breakpoint.logFile));
         json_object_set_new(jsonObj, "fastResume", json_boolean(breakpoint.fastResume));
+        json_object_set_new(jsonObj, "threadId", json_integer(breakpoint.threadId));
         json_object_set_new(jsonObj, "silent", json_boolean(breakpoint.silent));
         json_array_append_new(jsonBreakpoints, jsonObj);
     }
@@ -1007,6 +1022,7 @@ void BpCacheLoad(JSON Root, bool migrateCommandCondition)
         // Fast resume
         breakpoint.fastResume = json_boolean_value(json_object_get(value, "fastResume"));
         breakpoint.silent = json_boolean_value(json_object_get(value, "silent"));
+        breakpoint.threadId = (DWORD)json_integer_value(json_object_get(value, "threadId"));
 
         // Build the hash map key: MOD_HASH + ADDRESS
         duint key;
@@ -1301,9 +1317,11 @@ bool BpGetFieldNumber(const BP_REF & Ref, BP_FIELD Field, duint & Value)
         case bpf_hitcount:
             Value = bp.hitcount;
             return true;
+        case bpf_threadid:
+            Value = bp.threadId;
+            return true;
         default:
-            __debugbreak();
-            return false;
+            return false; // unknown field — tolerate instead of crashing
         }
     });
 }
@@ -1331,8 +1349,7 @@ bool BpSetFieldNumber(const BP_REF & Ref, BP_FIELD Field, duint Value)
             bp.hitcount = (uint32_t)Value;
             return true;
         default:
-            __debugbreak();
-            return false;
+            return false; // unknown field — tolerate instead of crashing
         }
     });
 }
@@ -1376,8 +1393,7 @@ bool BpGetFieldText(const BP_REF & Ref, BP_FIELD Field, CBSTRING Callback, void*
             Callback(bp.logFile.c_str(), Userdata);
             return true;
         default:
-            __debugbreak();
-            return false;
+            return false; // unknown field — tolerate instead of crashing
         }
     });
 }
@@ -1415,8 +1431,7 @@ bool BpSetFieldText(const BP_REF & Ref, BP_FIELD Field, const char* Value)
             return true;
         }
         default:
-            __debugbreak();
-            return false;
+            return false; // unknown field — tolerate instead of crashing
         }
     });
 }

@@ -167,6 +167,8 @@ static void registercommands()
 
     //breakpoint control
     dbgcmdnew("SetBPX,bp,bpx", cbDebugSetBPX, true); //breakpoint
+    dbgcmdnew("bpt,threadbreakpoint,threadbp", cbDebugBpt, true); //thread-specific breakpoint
+    dbgcmdnew("bpthread,togglethreadbreakpoint", cbDebugBpthread, true); //toggle process<->thread breakpoint
     dbgcmdnew("DeleteBPX,bpc,bc", cbDebugDeleteBPX, true); //breakpoint delete
     dbgcmdnew("EnableBPX,bpe,be", cbDebugEnableBPX, true); //breakpoint enable
     dbgcmdnew("DisableBPX,bpd,bd", cbDebugDisableBPX, true); //breakpoint disable

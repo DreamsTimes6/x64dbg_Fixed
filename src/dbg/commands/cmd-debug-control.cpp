@@ -127,19 +127,20 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
                 gRunToAddress = runToAddr;
                 gRunToThreadId = ThreadGetId(hActiveThread);
                 gRunToSetBPX = false;
-                if(SetBPX(runToAddr, UE_BREAKPOINT | UE_SINGLESHOOT, cbUserBreakpoint))
+                if(SetBPX(runToAddr, UE_BREAKPOINT, cbUserBreakpoint))
                     gRunToSetBPX = true;
             }
         }
     }
     else
     {
-        // Plain run (F9): clean up any unfinished run-to INT3.
+        // Plain run (F9): clean up any unfinished run-to INT3 and pending F4.
         if(gRunToSetBPX && gRunToAddress)
             DeleteBPX(gRunToAddress);
         gRunToSetBPX = false;
         gRunToThreadId = 0;
         gRunToAddress = 0;
+        gRunToPendingF4 = false; // cancel a queued F4 (target == current CIP) that never started
     }
     // Resume threads suspended by single-threaded stepping (step commands
     // pass resumeSteppedThreads=false and keep the suspension active)

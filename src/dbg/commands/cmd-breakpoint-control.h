@@ -3,6 +3,8 @@
 #include "command.h"
 
 bool cbDebugSetBPX(int argc, char* argv[]);
+bool cbDebugBpt(int argc, char* argv[]);
+bool cbDebugBpthread(int argc, char* argv[]);
 bool cbDebugDeleteBPX(int argc, char* argv[]);
 bool cbDebugEnableBPX(int argc, char* argv[]);
 bool cbDebugDisableBPX(int argc, char* argv[]);

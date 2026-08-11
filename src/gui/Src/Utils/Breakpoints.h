@@ -44,6 +44,7 @@ public:
         bool singleshoot = false;
         bool silent = false;
         bool fastResume = false;
+        DWORD threadId = 0; // 0 = process-wide, nonzero = thread-specific
 
         // Helper functions
         void getField(BP_FIELD field, QString & value);

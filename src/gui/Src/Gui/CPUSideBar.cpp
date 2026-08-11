@@ -3,6 +3,17 @@
 #include "Breakpoints.h"
 #include "CPUDisassembly.h"
 #include "CachedFontMetrics.h"
+
+// Returns true when the software breakpoint at `va` is thread-specific
+static bool isThreadBreakpointAt(duint va)
+{
+    BP_REF ref;
+    DbgFunctions()->BpRefVa(&ref, bp_normal, va);
+    duint tid = 0;
+    if(ref.GetField(bpf_threadid, tid))
+        return tid != 0;
+    return false;
+}
 #include <QToolTip>
 
 CPUSideBar::CPUSideBar(CPUDisassembly* disassembly, QWidget* parent)
@@ -222,7 +233,7 @@ void CPUSideBar::paintEvent(QPaintEvent* event)
         duint instrVAEnd = instrVA + instr.length;
 
         // draw bullet
-        drawBullets(&painter, line, DbgGetBpxTypeAt(instrVA) != bp_none, DbgIsBpDisabled(instrVA), DbgGetBookmarkAt(instrVA));
+        drawBullets(&painter, line, DbgGetBpxTypeAt(instrVA) != bp_none, DbgIsBpDisabled(instrVA), DbgGetBookmarkAt(instrVA), isThreadBreakpointAt(instrVA));
 
         if(isJump(line)) //handle jumps
         {
@@ -687,7 +698,7 @@ void CPUSideBar::drawJump(QPainter* painter, int startLine, int endLine, int jum
     painter->restore();
 }
 
-void CPUSideBar::drawBullets(QPainter* painter, int line, bool isbp, bool isbpdisabled, bool isbookmark)
+void CPUSideBar::drawBullets(QPainter* painter, int line, bool isbp, bool isbpdisabled, bool isbookmark, bool isthreadbp)
 {
     painter->save();
 
@@ -708,6 +719,23 @@ void CPUSideBar::drawBullets(QPainter* painter, int line, bool isbp, bool isbpdi
         painter->setBrush(QBrush(mBulletDisabledBreakpointColor));
 
     painter->drawEllipse(x, y + mBulletYOffset, mBulletRadius, mBulletRadius);
+
+    // Thread-specific breakpoint: draw a small "T" badge centered in the bullet
+    if(isthreadbp)
+    {
+        // Dim the T when the breakpoint is disabled
+        painter->setPen(isbpdisabled ? QColor(140, 140, 140) : QColor(255, 255, 255));
+        QFont f = painter->font();
+        f.setPointSize(std::max(3, f.pointSize() - 4));
+        f.setBold(true);
+        painter->setFont(f);
+        // Precisely center the glyph's ink box on the bullet center
+        // (bullet ellipse center = (x + r/2, y + yOff + r/2))
+        const qreal cx = x + mBulletRadius / 2.0;
+        const qreal cy = y + mBulletYOffset + mBulletRadius / 2.0;
+        QRectF ink = painter->fontMetrics().tightBoundingRect("T");
+        painter->drawText(QPointF(cx - ink.width() / 2.0 - ink.left(), cy - ink.height() / 2.0 - ink.top()), "T");
+    }
 
     painter->restore();
 }

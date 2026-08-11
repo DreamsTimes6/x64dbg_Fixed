@@ -63,6 +63,9 @@ public slots:
 
     void toggleInt3BPActionSlot();
     void editSoftBpActionSlot();
+    void threadBpActionSlot();
+    void threadBpChooseActionSlot();
+    void toggleBpThreadActionSlot();
     void toggleHwBpActionSlot();
     void setHwBpOnSlot0ActionSlot();
     void setHwBpOnSlot1ActionSlot();

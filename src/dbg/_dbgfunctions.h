@@ -161,6 +161,7 @@ typedef enum
     bpf_commandtext, // text
     bpf_commandcondition, // text
     bpf_logfile, // text
+    bpf_threadid, // number (0 = process-wide, nonzero = thread-specific) — keep at the end so older field values stay stable
 } BP_FIELD;
 
 // An instance of this structure represents a reference to a breakpoint.

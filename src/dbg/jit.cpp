@@ -69,7 +69,7 @@ static bool readwritejitkey(const wchar_t* jit_key_value, DWORD* jit_key_vale_si
                 lRv = ERROR_SUCCESS;
         }
         else
-            lRv = RegSetValueExW(hKey, StringUtils::Utf8ToUtf16(key).c_str(), 0, REG_SZ, (const BYTE*)jit_key_value, (DWORD)(*jit_key_vale_size) + 1);
+            lRv = RegSetValueExW(hKey, StringUtils::Utf8ToUtf16(key).c_str(), 0, REG_SZ, (const BYTE*)jit_key_value, (DWORD)(*jit_key_vale_size) + sizeof(wchar_t));
     }
     else
     {

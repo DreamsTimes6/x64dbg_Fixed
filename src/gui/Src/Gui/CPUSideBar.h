@@ -49,7 +49,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event);
     void mouseDoubleClickEvent(QMouseEvent* event);
 
-    void drawBullets(QPainter* painter, int line, bool ispb, bool isbpdisabled, bool isbookmark);
+    void drawBullets(QPainter* painter, int line, bool ispb, bool isbpdisabled, bool isbookmark, bool isthreadbp);
     bool isJump(int i) const;
     void drawJump(QPainter* painter, int startLine, int endLine, int jumpoffset, bool conditional, bool isexecute, bool isactive);
     int isFoldingGraphicsPresent(int line);

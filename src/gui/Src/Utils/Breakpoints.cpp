@@ -418,5 +418,8 @@ bool Breakpoints::Data::read()
     getField(bpf_singleshoot, singleshoot);
     getField(bpf_silent, silent);
     getField(bpf_fastresume, fastResume);
+    duint threadIdTmp = 0;
+    getField(bpf_threadid, threadIdTmp);
+    threadId = (DWORD)threadIdTmp;
     return !error;
 }

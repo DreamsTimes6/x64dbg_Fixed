@@ -626,6 +626,7 @@ typedef struct
     unsigned int hitCount;
     bool fastResume;
     bool silent;
+    DWORD threadId; // 0 = process-wide, nonzero = thread-specific
     char breakCondition[MAX_CONDITIONAL_EXPR_SIZE];
     char logText[MAX_CONDITIONAL_TEXT_SIZE];
     char logCondition[MAX_CONDITIONAL_EXPR_SIZE];

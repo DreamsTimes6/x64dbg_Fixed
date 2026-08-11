@@ -49,8 +49,20 @@
 |---|---|
 | `src/dbg/thread.cpp` / `thread.h` | 新增 `ThreadSuspendAllExceptActive()` |
 | `src/dbg/commands/cmd-debug-control.cpp/.h` | 新增设置 `Engine.SingleThreadStepping`：`step`/`stepover`/`stepout` 时自动挂起其他线程（等效 OllyDbg 单线程步进）；**F4（`run <addr>`）同样锁定其他线程**（只当前线程跑到目标地址），`run`（F9）恢复所有线程；`stop` 时清理 |
-| `src/dbg/debugger.cpp` | 新增 `gRunToAddress`：**F4 运行到地址优先于已有断点**——命中目标地址时干净暂停，**跳过已有 F2 断点的命令/日志/命中计数**（F4 不被普通断点"劫持"） |
+| `src/dbg/debugger.cpp` | 新增 `gRunToAddress`：**F4 运行到地址优先于已有断点**——命中目标地址时干净暂停，**跳过已有 F2 断点的命令/日志/命中计数**；`gRunToThreadId` 线程级命中（其他线程踩到不暂停） |
 | `src/gui/Src/Gui/SettingsDialog.*` | 选项页新增“单步调试时挂起其他线程”勾选框 |
+
+### 4b. 线程断点（进程断点 / 线程断点）
+
+| 文件 | 修复内容 |
+|---|---|
+| `src/dbg/breakpoint.h/cpp` | `BREAKPOINT.threadId`（0=进程级，非0=线程级）；`BpSetThreadId`；序列化保存/恢复；`bpf_threadid` 放枚举末尾（向后兼容） |
+| `src/dbg/debugger.cpp` | 命中线程过滤：非目标线程命中 → 不暂停（TitanEngine 保持断点武装，无死循环） |
+| `src/dbg/commands/cmd-breakpoint-control.cpp/.h` | 新命令 `bpt 地址[,线程ID]`（设线程断点，默认当前活动线程）、`bpthread 地址`（进程↔线程切换） |
+| `src/dbg/_dbgfunctions.h` | `BP_FIELD.bpf_threadid`（枚举末尾） |
+| `src/gui/.../CommonActions.*` | 反汇编右键菜单：线程断点（当前线程）/（选择线程...）/ 切换 进程/线程断点 |
+| `src/gui/.../BreakpointsView.*` | 断点列表右键菜单：切换 进程/线程断点、修改线程...；类型列线程断点显示 `T: <十进制线程ID>` |
+| `src/gui/.../CPUSideBar.*` | 反汇编侧栏线程断点图标：红点内白色 T（禁用变灰，字形精确居中） |
 
 ### 5. 插件菜单命令化（headless 可用）
 
