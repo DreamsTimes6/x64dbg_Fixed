@@ -78,9 +78,15 @@ static bool regValueToUE(int reg, TitanRegister* ue)
     case REG_CIP: *ue = UE_CIP; return true;
     case REG_EFLAGS: *ue = UE_EFLAGS; return true;
     case REG_CSP: *ue = UE_CSP; return true;
-    case REG_CBP: *ue = UE_EBP; return true; // x64: RBP via UE_EBP
-    case REG_CSI: *ue = UE_ESI; return true; // x64: RSI via UE_ESI
-    case REG_CDI: *ue = UE_EDI; return true; // x64: RDI via UE_EDI
+#ifdef _WIN64
+    case REG_CBP: *ue = UE_RBP; return true; // x64: full RBP
+    case REG_CSI: *ue = UE_RSI; return true; // x64: full RSI
+    case REG_CDI: *ue = UE_RDI; return true; // x64: full RDI
+#else
+    case REG_CBP: *ue = UE_EBP; return true;
+    case REG_CSI: *ue = UE_ESI; return true;
+    case REG_CDI: *ue = UE_EDI; return true;
+#endif
     default: return false;
     }
 }

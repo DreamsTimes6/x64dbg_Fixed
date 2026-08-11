@@ -3381,6 +3381,7 @@ static void debugLoopFunction(INIT_STRUCT* init)
 
     //fixes data loss when attach failed (https://github.com/x64dbg/x64dbg/issues/1899)
     DbClose();
+    WriteWatchClear(); // restore watched regions before detach/terminate
 
     //call plugin callback
     PLUG_CB_STOPDEBUG stopInfo;

@@ -23,6 +23,7 @@ struct WriteWatchEntry
     DWORD originalProtect = 0;
     bool readOnly = false;
     bool pendingStep = false;
+    DWORD pendingStepThreadId = 0;
     duint pendingWriteAddr = 0;
     duint pendingWriteInstrAddr = 0; // the instruction that performed the write
 };
@@ -33,21 +34,42 @@ static void protectWatch(WriteWatchEntry& w, bool readOnly)
 {
     if(readOnly == w.readOnly)
         return;
+    if(!fdProcessInfo || !fdProcessInfo->hProcess)
+        return;
     DWORD old = 0;
-    if(fdProcessInfo && fdProcessInfo->hProcess)
+    // Keep the execute bit when forcing read-only (code regions must stay runnable)
+    DWORD newProt = PAGE_READONLY | (w.originalProtect & PAGE_EXECUTE);
+    if(VirtualProtectEx(fdProcessInfo->hProcess, (void*)w.addr, w.size,
+                        readOnly ? newProt : w.originalProtect, &old))
     {
-        VirtualProtectEx(fdProcessInfo->hProcess, (void*)w.addr, w.size,
-                         readOnly ? PAGE_READONLY : w.originalProtect, &old);
-        if(readOnly)
+        // Only capture the original protection the first time we force
+        // read-only; a repeated bpmatch on the same region must not store
+        // PAGE_READONLY as the "original".
+        if(readOnly && !w.readOnly)
             w.originalProtect = old;
         w.readOnly = readOnly;
     }
 }
 
-static void pauseOnMatch(const WriteWatchEntry& w)
+// Re-arm the region read-only after a non-matching write
+static void reProtectWatch(WriteWatchEntry& w)
+{
+    if(!fdProcessInfo || !fdProcessInfo->hProcess)
+        return;
+    DWORD old = 0;
+    DWORD newProt = PAGE_READONLY | (w.originalProtect & PAGE_EXECUTE);
+    if(VirtualProtectEx(fdProcessInfo->hProcess, (void*)w.addr, w.size, newProt, &old))
+        w.readOnly = true;
+}
+
+static void pauseOnMatch(WriteWatchEntry& w)
 {
     dprintf(QT_TRANSLATE_NOOP("DBG", "Data pattern (%zu bytes) matched at %p, written by instruction at %p\n"),
             w.pattern.size(), w.pendingWriteAddr, w.pendingWriteInstrAddr);
+    // Continue as a normal breakpoint pause; re-arm the watch so it keeps
+    // monitoring after the user resumes.
+    reProtectWatch(w);
+    dbgsetcontinuestatus(DBG_CONTINUE);
     DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
     //lock
     lock(WAITID_RUN);
@@ -76,6 +98,7 @@ bool WriteWatchHandleException(EXCEPTION_DEBUG_INFO* ExceptionData)
             // Guard write: unprotect, re-execute the write instruction, single-step
             protectWatch(w, false);
             w.pendingStep = true;
+            w.pendingStepThreadId = GetDebugData()->dwThreadId;
             w.pendingWriteAddr = writeAddr;
             w.pendingWriteInstrAddr = (duint)rec.ExceptionAddress;
             SetContextDataEx(hActiveThread, UE_CIP, (duint)rec.ExceptionAddress);
@@ -87,6 +110,10 @@ bool WriteWatchHandleException(EXCEPTION_DEBUG_INFO* ExceptionData)
         }
         if(rec.ExceptionCode == 0x80000004 && w.pendingStep)
         {
+            // Only consume the single-step from the same thread that was
+            // re-executing; otherwise another thread's step must not be eaten.
+            if(GetDebugData()->dwThreadId != w.pendingStepThreadId)
+                continue;
             // Single-step after the re-executed write: compare written bytes
             w.pendingStep = false;
             bool match = true;
@@ -105,7 +132,7 @@ bool WriteWatchHandleException(EXCEPTION_DEBUG_INFO* ExceptionData)
                 return true;
             }
             // Not the target pattern: re-protect and keep going seamlessly
-            protectWatch(w, true);
+            reProtectWatch(w);
             dbgsetcontinuestatus(DBG_CONTINUE);
             return true;
         }
@@ -116,12 +143,34 @@ bool WriteWatchHandleException(EXCEPTION_DEBUG_INFO* ExceptionData)
 static bool parsePattern(const char* hex, std::vector<unsigned char>& pattern)
 {
     std::string s = hex;
-    for(size_t i = 0; i + 1 < s.size(); i += 2)
+    // strip "0x"/spaces
+    if(s.rfind("0x", 0) == 0)
+        s = s.substr(2);
+    for(char& c : s)
     {
-        char tmp[3] = { s[i], s[i + 1], 0 };
+        if(c == ' ' || c == ',')
+            c = 0; // collapse separators
+    }
+    std::string clean;
+    for(char c : s)
+        if(c)
+            clean += c;
+    if(clean.empty() || clean.size() % 2 != 0)
+        return false;
+    for(size_t i = 0; i < clean.size(); i += 2)
+    {
+        char tmp[3] = { clean[i], clean[i + 1], 0 };
         pattern.push_back((unsigned char)strtoul(tmp, nullptr, 16));
     }
     return !pattern.empty();
+}
+
+// Restore all watched regions and clear the table (debug stop / clear)
+void WriteWatchClear()
+{
+    for(auto& w : g_writeWatches)
+        protectWatch(w, false);
+    g_writeWatches.clear();
 }
 
 bool cbDebugBpMatch(int argc, char* argv[]) //bpmatch <hex>[, <addr>[, <size>]] | bpmatch clear
@@ -130,9 +179,7 @@ bool cbDebugBpMatch(int argc, char* argv[]) //bpmatch <hex>[, <addr>[, <size>]] 
         return false;
     if(!_stricmp(argv[1], "clear"))
     {
-        for(auto& w : g_writeWatches)
-            protectWatch(w, false);
-        g_writeWatches.clear();
+        WriteWatchClear();
         dputs(QT_TRANSLATE_NOOP("DBG", "bpmatch: all watches cleared"));
         return true;
     }
@@ -154,7 +201,15 @@ bool cbDebugBpMatch(int argc, char* argv[]) //bpmatch <hex>[, <addr>[, <size>]] 
 
     if(!addr)
     {
-        // Enumerate writable committed regions and watch each one
+        if(!fdProcessInfo || !fdProcessInfo->hProcess)
+        {
+            dputs(QT_TRANSLATE_NOOP("DBG", "bpmatch: not debugging"));
+            return false;
+        }
+        // Enumerate writable committed regions and watch each one. NOTE: this
+        // forces every writable region read-only, so every write triggers an
+        // access-violation round trip — expensive on write-heavy programs.
+        dputs(QT_TRANSLATE_NOOP("DBG", "bpmatch: full-memory mode is expensive; prefer a specific address if possible"));
         MEMORY_BASIC_INFORMATION mbi;
         duint count = 0;
         for(duint p = 0; VirtualQueryEx(fdProcessInfo->hProcess, (void*)p, &mbi, sizeof(mbi)); p = (duint)mbi.BaseAddress + mbi.RegionSize)
@@ -179,6 +234,15 @@ bool cbDebugBpMatch(int argc, char* argv[]) //bpmatch <hex>[, <addr>[, <size>]] 
     }
     else
     {
+        // Avoid duplicating an entry on the same region
+        for(auto& w : g_writeWatches)
+        {
+            if(w.addr == addr)
+            {
+                dputs(QT_TRANSLATE_NOOP("DBG", "bpmatch: region already watched"));
+                return true;
+            }
+        }
         WriteWatchEntry w;
         w.addr = addr;
         w.size = size;
