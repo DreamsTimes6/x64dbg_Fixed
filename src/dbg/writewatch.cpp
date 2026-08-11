@@ -24,6 +24,7 @@ struct WriteWatchEntry
     bool readOnly = false;
     bool pendingStep = false;
     duint pendingWriteAddr = 0;
+    duint pendingWriteInstrAddr = 0; // the instruction that performed the write
 };
 
 static std::vector<WriteWatchEntry> g_writeWatches;
@@ -45,7 +46,8 @@ static void protectWatch(WriteWatchEntry& w, bool readOnly)
 
 static void pauseOnMatch(const WriteWatchEntry& w)
 {
-    dprintf(QT_TRANSLATE_NOOP("DBG", "Data pattern (%zu bytes) matched at %p!\n"), w.pattern.size(), w.pendingWriteAddr);
+    dprintf(QT_TRANSLATE_NOOP("DBG", "Data pattern (%zu bytes) matched at %p, written by instruction at %p\n"),
+            w.pattern.size(), w.pendingWriteAddr, w.pendingWriteInstrAddr);
     DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
     //lock
     lock(WAITID_RUN);
@@ -75,6 +77,7 @@ bool WriteWatchHandleException(EXCEPTION_DEBUG_INFO* ExceptionData)
             protectWatch(w, false);
             w.pendingStep = true;
             w.pendingWriteAddr = writeAddr;
+            w.pendingWriteInstrAddr = (duint)rec.ExceptionAddress;
             SetContextDataEx(hActiveThread, UE_CIP, (duint)rec.ExceptionAddress);
             duint eflags = GetContextDataEx(hActiveThread, UE_EFLAGS);
             SetContextDataEx(hActiveThread, UE_EFLAGS, eflags | 0x100); // TF
