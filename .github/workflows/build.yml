@@ -141,8 +141,8 @@ jobs:
         run: |
           curl.exe -L https://github.com/x64dbg/translations/releases/download/translations/qm.zip -o bin\qm.zip
           7z x bin\qm.zip -obin
-          rem Use our zh_CN translation (includes thread-breakpoint strings) when present in the repo
-          if exist translations\x64dbg_zh_CN.qm ( copy /Y translations\x64dbg_zh_CN.qm bin\translations\ )
+          # Use our zh_CN translation (includes thread-breakpoint strings) when present in the repo
+          if (Test-Path "translations\x64dbg_zh_CN.qm") { Copy-Item "translations\x64dbg_zh_CN.qm" "bin\translations\" -Force }
           cmake -P .\cmake\release.cmake
           $timestamp = Get-Date (Get-Date).ToUniversalTime() -Format "yyyy-MM-dd_HH-mm"
           echo "timestamp=$timestamp" >> $env:GITHUB_ENV
