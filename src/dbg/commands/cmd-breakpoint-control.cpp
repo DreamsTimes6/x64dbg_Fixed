@@ -818,6 +818,8 @@ bool cbDebugSetMemoryBpx(int argc, char* argv[])
     if(!restore)
         singleshoot = true;
     BREAKPOINT bp;
+    // Key the breakpoint by the region base so the logical breakpoint matches
+    // what was armed (SetMemoryBPXEx) and what mbassertregion reports.
     if(BpGet(base, BPMEMORY, 0, &bp))
     {
         if(!bp.enabled)
@@ -838,7 +840,7 @@ bool cbDebugSetMemoryBpx(int argc, char* argv[])
         // single page so the breakpoint still works for the selected address.
         BpDelete(base, BPMEMORY);
         constexpr duint pageSize = 0x1000;
-        duint pageBase = addr & ~(duint)(pageSize - 1);
+        duint pageBase = base & ~(duint)(pageSize - 1);
         if(!BpNew(pageBase, true, singleshoot, 0, BPMEMORY, type, 0, pageSize))
         {
             dputs(QT_TRANSLATE_NOOP("DBG", "Error setting memory breakpoint! (BpNew)"));
