@@ -2,6 +2,8 @@
 #include "ui_MainWindow.h"
 #include <QMutex>
 #include <QMessageBox>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QToolButton>
 #include <QIcon>
 #include <QUrl>
@@ -311,6 +313,8 @@ MainWindow::MainWindow(QWidget* parent)
     makeCommandAction(ui->actionSkipNextInstruction, "skip");
     connect(ui->actionScript, SIGNAL(triggered()), this, SLOT(displayScriptWidget()));
     connect(ui->actionRunSelection, SIGNAL(triggered()), this, SLOT(runSelection()));
+    connect(ui->actionDataWatch, SIGNAL(triggered()), this, SLOT(dataWatchSlot()));
+    connect(ui->actionStopDataWatch, SIGNAL(triggered()), this, SLOT(stopDataWatchSlot()));
     connect(ui->actionRunExpression, SIGNAL(triggered(bool)), this, SLOT(runExpression()));
     makeCommandAction(ui->actionHideDebugger, "hide");
     connect(ui->actionCpu, SIGNAL(triggered()), this, SLOT(displayCpuWidgetShowCpu()));
@@ -2099,6 +2103,22 @@ void MainWindow::runExpression()
 
     if(DbgCmdExecDirect(QString("bp \"%1\", ss").arg(gotoDialog.expressionText).toUtf8().constData()))
         DbgCmdExecDirect("run");
+}
+
+void MainWindow::dataWatchSlot()
+{
+    if(!DbgIsDebugging())
+        return;
+    bool ok = false;
+    QString pattern = QInputDialog::getText(this, tr("Data Watch"), tr("Hex data pattern (e.g. 6ECC4F1D04F5ABDCAD7D842565F8D286):"), QLineEdit::Normal, QString(), &ok);
+    if(!ok || pattern.trimmed().isEmpty())
+        return;
+    DbgCmdExecDirect(QString("bpmatch %1").arg(pattern.trimmed()).toUtf8().constData());
+}
+
+void MainWindow::stopDataWatchSlot()
+{
+    DbgCmdExecDirect("bpmatch clear");
 }
 
 void MainWindow::getStrWindow(const QString title, QString* text)

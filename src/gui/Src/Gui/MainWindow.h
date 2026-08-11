@@ -113,6 +113,8 @@ public slots:
     void setNameMenu(int hMenu, QString name);
     void runSelection();
     void runExpression();
+    void dataWatchSlot();
+    void stopDataWatchSlot();
     void getStrWindow(const QString title, QString* text);
     void patchWindow();
     void displayComments();

@@ -145,6 +145,9 @@
     <addaction name="actionRtr"/>
     <addaction name="actionRtu"/>
     <addaction name="separator"/>
+    <addaction name="actionDataWatch"/>
+    <addaction name="actionStopDataWatch"/>
+    <addaction name="separator"/>
     <addaction name="separator"/>
     <addaction name="menuAdvanced"/>
    </widget>
@@ -1141,6 +1144,22 @@
    </property>
    <property name="statusTip">
     <string>Trace over until user code would be executed.</string>
+   </property>
+  </action>
+  <action name="actionDataWatch">
+   <property name="text">
+    <string>Data &amp;Watch...</string>
+   </property>
+   <property name="statusTip">
+    <string>Monitor a data pattern: pause when it first appears in memory (bpmatch).</string>
+   </property>
+  </action>
+  <action name="actionStopDataWatch">
+   <property name="text">
+    <string>Stop Data &amp;Watch</string>
+   </property>
+   <property name="statusTip">
+    <string>Clear all data watches (bpmatch clear).</string>
    </property>
   </action>
   <action name="actionRunExpression">
