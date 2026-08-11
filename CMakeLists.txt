@@ -418,6 +418,8 @@ set(dbg_SOURCES
 	"src/dbg/variable.h"
 	"src/dbg/watch.cpp"
 	"src/dbg/watch.h"
+	"src/dbg/writewatch.cpp"
+	"src/dbg/writewatch.h"
 	"src/dbg/x64dbg.cpp"
 	"src/dbg/x64dbg.h"
 	"src/dbg/xrefs.cpp"

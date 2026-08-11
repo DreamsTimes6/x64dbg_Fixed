@@ -7,6 +7,7 @@
 #include "_global.h"
 #include "args.h"
 #include "command.h"
+#include "writewatch.h"
 #include "variable.h"
 #include "debugger.h"
 #include "simplescript.h"
@@ -167,6 +168,7 @@ static void registercommands()
 
     //breakpoint control
     dbgcmdnew("SetBPX,bp,bpx", cbDebugSetBPX, true); //breakpoint
+    dbgcmdnew("bpmatch,datawatch", cbDebugBpMatch, true); //data-pattern write watch
     dbgcmdnew("bpt,threadbreakpoint,threadbp", cbDebugBpt, true); //thread-specific breakpoint
     dbgcmdnew("bpthread,togglethreadbreakpoint", cbDebugBpthread, true); //toggle process<->thread breakpoint
     dbgcmdnew("DeleteBPX,bpc,bc", cbDebugDeleteBPX, true); //breakpoint delete

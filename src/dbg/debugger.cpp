@@ -8,6 +8,7 @@
 #include "console.h"
 #include "memory.h"
 #include "threading.h"
+#include "writewatch.h"
 #include "command.h"
 #include "database.h"
 #include "watch.h"
@@ -2316,6 +2317,10 @@ static void cbException(EXCEPTION_DEBUG_INFO* ExceptionData)
     // plugin can verify the written bytes afterwards).
     if(ExceptionData->dwFirstChance)
     {
+        // Kernel data-pattern write watch (bpmatch) — handled before plugins
+        if(WriteWatchHandleException(ExceptionData))
+            return;
+
         PLUG_CB_PREEXCEPTION preInfo = { ExceptionData, false, false, false };
         plugincbcall(CB_PREEXCEPTION, &preInfo);
         if(preInfo.handled)
@@ -2324,13 +2329,15 @@ static void cbException(EXCEPTION_DEBUG_INFO* ExceptionData)
             {
                 // Re-execute the faulting instruction
                 SetContextDataEx(hActiveThread, UE_CIP, (duint)ExceptionData->ExceptionRecord.ExceptionAddress);
-                if(preInfo.singleStep)
-                {
-                    // Set the trap flag so a single-step exception fires right
-                    // after the re-executed instruction
-                    duint eflags = GetContextDataEx(hActiveThread, UE_EFLAGS);
-                    SetContextDataEx(hActiveThread, UE_EFLAGS, eflags | 0x100);
-                }
+            }
+            if(preInfo.singleStep)
+            {
+                // Set the trap flag so a single-step exception fires right
+                // after the write instruction executes (independent of
+                // reExecute: the target may resume naturally from the
+                // faulting instruction via DBG_CONTINUE).
+                duint eflags = GetContextDataEx(hActiveThread, UE_EFLAGS);
+                SetContextDataEx(hActiveThread, UE_EFLAGS, eflags | 0x100);
             }
             // Handled: continue without re-dispatching (no second-chance)
             dbgsetcontinuestatus(DBG_CONTINUE);
