@@ -236,6 +236,8 @@ BRIDGE_IMPEXP const wchar_t* BridgeInit(BRIDGE_CONFIG* config)
     LOADEXPORT(_dbg_encodetypeset);
     LOADEXPORT(_dbg_bpgettypeat);
     LOADEXPORT(_dbg_getregdump);
+    LOADEXPORT(_dbg_getregvalue);
+    LOADEXPORT(_dbg_setregvalue);
     LOADEXPORT(_dbg_valsetbuffer);
     LOADEXPORT(_dbg_valsetscalar);
     LOADEXPORT(_dbg_memisvalidreadptr);
@@ -889,6 +891,18 @@ static void Getx87StatusWordFields(X87STATUSWORDFIELDS* x87StatusWordFields, WOR
 #define Calculatex87registerPositionInRegisterArea(x87r0_position, index) (((x87r0_position + index) % 8))
 #define GetRegisterAreaOf87register(register_area, x87r0_position, index) (((char *) register_area) + 10 * Calculatex87registerPositionInRegisterArea(x87r0_position, index) )
 #define GetSTValueFromIndex(x87r0_position, index) ((x87r0_position + index) % 8)
+
+BRIDGE_IMPEXP bool DbgGetRegValue(int reg, duint* value)
+{
+    if(!value)
+        return false;
+    return _dbg_getregvalue(reg, value);
+}
+
+BRIDGE_IMPEXP bool DbgSetRegValue(int reg, duint value)
+{
+    return _dbg_setregvalue(reg, value);
+}
 
 BRIDGE_IMPEXP bool DbgGetRegDumpEx(REGDUMP_AVX512* regdump, size_t size)
 {

@@ -10,6 +10,7 @@
 #include "value.h"
 #include "threading.h"
 #include "breakpoint.h"
+#include "bridgemain.h"
 #include "disasm_helper.h"
 #include "simplescript.h"
 #include "symbolinfo.h"
@@ -51,6 +52,59 @@ extern "C" DLL_EXPORT duint _dbg_memfindbaseaddr(duint addr, duint* size)
 extern "C" DLL_EXPORT bool _dbg_memread(duint addr, unsigned char* dest, duint size, duint* read)
 {
     return MemRead(addr, dest, size, read);
+}
+
+// Map a REG_VALUE identifier to a TitanEngine register index
+static bool regValueToUE(int reg, TitanRegister* ue)
+{
+    switch(reg)
+    {
+    case REG_EAX: *ue = UE_EAX; return true;
+    case REG_ECX: *ue = UE_ECX; return true;
+    case REG_EDX: *ue = UE_EDX; return true;
+    case REG_EBX: *ue = UE_EBX; return true;
+    case REG_ESP: *ue = UE_ESP; return true;
+    case REG_EBP: *ue = UE_EBP; return true;
+    case REG_ESI: *ue = UE_ESI; return true;
+    case REG_EDI: *ue = UE_EDI; return true;
+    case REG_R8: *ue = UE_R8; return true;
+    case REG_R9: *ue = UE_R9; return true;
+    case REG_R10: *ue = UE_R10; return true;
+    case REG_R11: *ue = UE_R11; return true;
+    case REG_R12: *ue = UE_R12; return true;
+    case REG_R13: *ue = UE_R13; return true;
+    case REG_R14: *ue = UE_R14; return true;
+    case REG_R15: *ue = UE_R15; return true;
+    case REG_CIP: *ue = UE_CIP; return true;
+    case REG_EFLAGS: *ue = UE_EFLAGS; return true;
+    case REG_CSP: *ue = UE_CSP; return true;
+    case REG_CBP: *ue = UE_EBP; return true; // x64: RBP via UE_EBP
+    case REG_CSI: *ue = UE_ESI; return true; // x64: RSI via UE_ESI
+    case REG_CDI: *ue = UE_EDI; return true; // x64: RDI via UE_EDI
+    default: return false;
+    }
+}
+
+extern "C" DLL_EXPORT bool _dbg_getregvalue(int reg, duint* value)
+{
+    if(!value || !DbgIsDebugging() || !hActiveThread)
+        return false;
+    TitanRegister ue;
+    if(!regValueToUE(reg, &ue))
+        return false;
+    *value = GetContextDataEx(hActiveThread, ue);
+    return true;
+}
+
+extern "C" DLL_EXPORT bool _dbg_setregvalue(int reg, duint value)
+{
+    if(!DbgIsDebugging() || !hActiveThread)
+        return false;
+    TitanRegister ue;
+    if(!regValueToUE(reg, &ue))
+        return false;
+    SetContextDataEx(hActiveThread, ue, value);
+    return true;
 }
 
 extern "C" DLL_EXPORT bool _dbg_memwrite(duint addr, const unsigned char* src, duint size, duint* written)

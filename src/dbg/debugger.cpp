@@ -2308,6 +2308,36 @@ static void cbOutputDebugString(OUTPUT_DEBUG_STRING_INFO* DebugString)
 static void cbException(EXCEPTION_DEBUG_INFO* ExceptionData)
 {
     hActiveThread = ThreadGetHandle(GetDebugData()->dwThreadId);
+
+    // Pre-exception callback: plugins get a chance to transparently handle a
+    // first-chance exception BEFORE the debugger pauses on it (e.g. a
+    // guard-page write breakpoint: unprotect the page, mark handled, and let
+    // the debugger re-execute the write instruction with a single-step so the
+    // plugin can verify the written bytes afterwards).
+    if(ExceptionData->dwFirstChance)
+    {
+        PLUG_CB_PREEXCEPTION preInfo = { ExceptionData, false, false, false };
+        plugincbcall(CB_PREEXCEPTION, &preInfo);
+        if(preInfo.handled)
+        {
+            if(preInfo.reExecute)
+            {
+                // Re-execute the faulting instruction
+                SetContextDataEx(hActiveThread, UE_CIP, (duint)ExceptionData->ExceptionRecord.ExceptionAddress);
+                if(preInfo.singleStep)
+                {
+                    // Set the trap flag so a single-step exception fires right
+                    // after the re-executed instruction
+                    duint eflags = GetContextDataEx(hActiveThread, UE_EFLAGS);
+                    SetContextDataEx(hActiveThread, UE_EFLAGS, eflags | 0x100);
+                }
+            }
+            // Handled: continue without re-dispatching (no second-chance)
+            dbgsetcontinuestatus(DBG_CONTINUE);
+            return;
+        }
+    }
+
     PLUG_CB_EXCEPTION callbackInfo;
     callbackInfo.Exception = ExceptionData;
     unsigned int ExceptionCode = ExceptionData->ExceptionRecord.ExceptionCode;

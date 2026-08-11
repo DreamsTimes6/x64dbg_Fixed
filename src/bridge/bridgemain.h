@@ -1159,6 +1159,36 @@ BRIDGE_IMPEXP bool DbgGetModuleAt(duint addr, char* text);
 BRIDGE_IMPEXP BPXTYPE DbgGetBpxTypeAt(duint addr);
 BRIDGE_IMPEXP duint DbgValFromString(const char* string);
 BRIDGE_IMPEXP bool DbgGetRegDumpEx(REGDUMP_AVX512* regdump, size_t size);
+
+// Register identifiers for DbgGetRegValue / DbgSetRegValue (architecture
+// independent; x64 maps EAX..EDI to the low 32 bits of RAX..RDI, CIP=IP/RIP)
+typedef enum
+{
+    REG_EAX = 0,
+    REG_ECX,
+    REG_EDX,
+    REG_EBX,
+    REG_ESP,
+    REG_EBP,
+    REG_ESI,
+    REG_EDI,
+    REG_R8,
+    REG_R9,
+    REG_R10,
+    REG_R11,
+    REG_R12,
+    REG_R13,
+    REG_R14,
+    REG_R15,
+    REG_CIP,
+    REG_EFLAGS,
+    REG_CSP,
+    REG_CBP,
+    REG_CSI,
+    REG_CDI,
+} REG_VALUE;
+BRIDGE_IMPEXP bool DbgGetRegValue(int reg, duint* value);
+BRIDGE_IMPEXP bool DbgSetRegValue(int reg, duint value);
 BRIDGE_IMPEXP bool DbgValSetBuffer(const char* string, const void* data, size_t size);
 // Previously called DbgValToString.
 BRIDGE_IMPEXP bool DbgValSetScalar(const char* string, duint value);

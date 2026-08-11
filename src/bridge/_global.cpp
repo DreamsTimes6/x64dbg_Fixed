@@ -21,6 +21,8 @@ DBGADDRINFOSET _dbg_addrinfoset;
 DBGENCODETYPESET _dbg_encodetypeset;
 DBGBPGETTYPEAT _dbg_bpgettypeat;
 DBGGETREGDUMP _dbg_getregdump;
+DBGGETREGVALUE _dbg_getregvalue;
+DBGSETREGVALUE _dbg_setregvalue;
 DBGVALSETBUFFER _dbg_valsetbuffer;
 DBGVALSETSCALAR _dbg_valsetscalar;
 DBGMEMISVALIDREADPTR _dbg_memisvalidreadptr;

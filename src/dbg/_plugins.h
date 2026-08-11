@@ -125,6 +125,22 @@ typedef struct
     EXCEPTION_DEBUG_INFO* Exception;
 } PLUG_CB_EXCEPTION;
 
+// Pre-exception callback: called for first-chance exceptions BEFORE the
+// debugger pauses on them. A plugin may transparently handle the exception:
+//   handled    = true  -> the debugger continues without pausing
+//   reExecute  = true  -> re-execute the faulting instruction (EIP back to
+//                         the exception address)
+//   singleStep = true  -> set the trap flag after re-execute so a single-step
+//                         exception fires right after the re-executed
+//                         instruction (used by guard-page write breakpoints)
+typedef struct
+{
+    EXCEPTION_DEBUG_INFO* Exception;
+    bool handled;
+    bool reExecute;
+    bool singleStep;
+} PLUG_CB_PREEXCEPTION;
+
 typedef struct
 {
     BRIDGEBP* breakpoint;
@@ -307,6 +323,7 @@ typedef enum
     CB_STOPPINGDEBUG, //PLUG_CB_STOPDEBUG
     CB_STARTTRACE, //PLUG_CB_STARTTRACE
     CB_STOPTRACE, //PLUG_CB_STOPTRACE
+    CB_PREEXCEPTION, //PLUG_CB_PREEXCEPTION (before pausing on a first-chance exception)
     CB_LAST
 } CBTYPE;
 
