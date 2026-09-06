@@ -401,6 +401,27 @@ bool BpDelete(const BREAKPOINT & Bp)
     return safeDelete(Bp.type, modHash + rva);
 }
 
+// Remove a memory breakpoint from TitanEngine robustly. x64dbg can arm the
+// same logical breakpoint at two different addresses: the containing region
+// base (the normal path) or, when arming the whole region fails, the single
+// page fallback (see cbDebugSetMemoryBpx). RemoveMemoryBPX matches by exact
+// BreakPointAddress, so walk every page of the recorded range to clear both
+// the region entry and any page-level fallback entry. TitanEngine still
+// decrements its per-page breakpoint counters internally, so this also stays
+// correct when two breakpoints from different regions share a page.
+void BpRemoveMemoryBpxAllPages(duint addr, duint size)
+{
+    constexpr duint pageSize = 0x1000;
+    duint pageStart = addr & ~(pageSize - 1);
+    duint pageEnd = (addr + size + pageSize - 1) & ~(pageSize - 1);
+    if(pageEnd <= pageStart)
+        pageEnd = pageStart + pageSize;
+    for(duint page = pageStart; page < pageEnd; page += pageSize)
+        RemoveMemoryBPX(page, 0); // 0 -> let TitanEngine use its recorded size
+    // Also try the exact address itself in case it is not page-aligned.
+    RemoveMemoryBPX(addr, 0);
+}
+
 bool BpEnable(duint Address, BP_TYPE Type, bool Enable)
 {
     ASSERT_DEBUGGING("Command function call");
@@ -596,8 +617,7 @@ bool BpSetSingleshoot(duint Address, BP_TYPE Type, bool singleshoot)
     case BPMEMORY:
         if(bpInfo->enabled)
         {
-            if(!RemoveMemoryBPX(Address, bpInfo->memsize))
-                dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed (RemoveMemoryBPX): %p\n"), Address);
+            BpRemoveMemoryBpxAllPages(Address, bpInfo->memsize);
             if(!SetMemoryBPXEx(Address, bpInfo->memsize, (TitanMemoryBreakpointType)bpInfo->titantype, !singleshoot, cbMemoryBreakpoint))
                 dprintf(QT_TRANSLATE_NOOP("DBG", "Could not enable memory breakpoint %p (SetMemoryBPXEx)\n"), Address);
         }
@@ -923,14 +943,19 @@ void BpCacheSave(JSON Root)
         if(breakpoint.singleshoot)
             continue;
 
+        // Do not persist memory breakpoints. They are implemented through
+        // temporary page protections (PAGE_GUARD/PAGE_NOACCESS) armed against
+        // the live memory map, so reloading them from an older session does
+        // not make sense and leaves stale guard pages behind.
+        if(breakpoint.type == BPMEMORY)
+            continue;
+
         JSON jsonObj = json_object();
         json_object_set_new(jsonObj, "address", json_hex(breakpoint.addr));
         json_object_set_new(jsonObj, "enabled", json_boolean(breakpoint.enabled));
 
         if(breakpoint.type == BPNORMAL) // "Normal" breakpoints save the old data
             json_object_set_new(jsonObj, "oldbytes", json_hex(breakpoint.oldbytes));
-        else if(breakpoint.type == BPMEMORY) // Memory breakpoints save the memory size
-            json_object_set_new(jsonObj, "memsize", json_hex(breakpoint.memsize));
 
         json_object_set_new(jsonObj, "type", json_integer(breakpoint.type));
         json_object_set_new(jsonObj, "titantype", json_hex(breakpoint.titantype));
@@ -989,10 +1014,16 @@ void BpCacheLoad(JSON Root, bool migrateCommandCondition)
         BREAKPOINT breakpoint;
 
         breakpoint.type = (BP_TYPE)json_integer_value(json_object_get(value, "type"));
+
+        // Do not restore memory breakpoints. The page protections they need
+        // are armed against the live memory map and must be recreated each
+        // session; restoring a stale record only imports a dead breakpoint
+        // (and older databases may still contain memsize records).
+        if(breakpoint.type == BPMEMORY)
+            continue;
+
         if(breakpoint.type == BPNORMAL)
             breakpoint.oldbytes = (unsigned short)(json_hex_value(json_object_get(value, "oldbytes")) & 0xFFFF);
-        else if(breakpoint.type == BPMEMORY)
-            breakpoint.memsize = (duint)json_hex_value(json_object_get(value, "memsize"));
         breakpoint.addr = (duint)json_hex_value(json_object_get(value, "address"));
         breakpoint.enabled = json_boolean_value(json_object_get(value, "enabled"));
         breakpoint.active = true; // Mark the breakpoint as active (loaded from the database)

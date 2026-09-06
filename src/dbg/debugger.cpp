@@ -51,22 +51,6 @@ static duint pDebuggedBase = 0;
 static duint pDebuggedEntry = 0;
 static bool bRepeatIn = false;
 static duint stepRepeat = 0;
-
-// F4 "run-to" state. A process-wide one-shot INT3 (SetBPX) is armed at the
-// target, and only the thread that initiated F4 (gRunToThreadId) is allowed
-// to stop: if another thread hits the INT3 first, the byte is re-armed and
-// execution continues. The INT3 is restored by TitanEngine on hit; a plain
-// run (F9) cleans up if the run-to never completed.
-duint gRunToAddress = 0;
-DWORD gRunToThreadId = 0;
-bool gRunToSetBPX = false;
-
-// F4 with target == current CIP: the current instruction is single-stepped
-// first (so the INT3 is not armed at our own feet), then the run-to is armed
-// and execution continues to the target's NEXT execution.
-bool gRunToPendingF4 = false;
-duint gRunToPendingF4Addr = 0;
-DWORD gRunToPendingF4Thread = 0;
 static bool bIsAttached = false;
 static bool bPauseAtAttach = false;
 static INIT_STRUCT* activeDebugLoopInit = nullptr;
@@ -972,51 +956,6 @@ static void cbGenericBreakpoint(BP_TYPE bptype, const void* ExceptionAddress = n
         break;
     }
     varset("$breakpointexceptionaddress", breakpointExceptionAddress, true);
-    // F4 "run to address": when the hit address is the run-to target, pause
-    // cleanly and skip the breakpoint's own actions (commands, log, hit
-    // count, conditions) so an existing F2 breakpoint at the same address is
-    // not "triggered" by the run-to operation.
-    if(gRunToAddress && breakpointExceptionAddress == gRunToAddress)
-    {
-        duint runToAddr = gRunToAddress;
-        // Thread-local run-to: only the F4-initiating thread may stop. If
-        // another thread hits the one-shot INT3 first, re-arm it and keep
-        // running without pausing.
-        if(gRunToThreadId && GetDebugData()->dwThreadId != gRunToThreadId)
-        {
-            // Other thread hit the run-to INT3. Do NOT re-arm it here: the
-            // non-singleshoot INT3 is kept armed by TitanEngine automatically,
-            // and re-writing 0xCC inside the hit callback races with its
-            // single-step machinery (the stepped-over instruction would hit
-            // the fresh INT3 again → infinite loop).
-            EXCLUSIVE_RELEASE();
-            return; // don't pause — the debug loop continues
-        }
-        gRunToAddress = 0;
-        gRunToThreadId = 0;
-        bool removeRunToSs = bpPtr && bpPtr->singleshoot && bpPtr->type == BPNORMAL;
-        bool setBpx = gRunToSetBPX;
-        gRunToSetBPX = false; // the run-to INT3 is removed below
-        // release the breakpoint lock to prevent deadlocks during the wait
-        EXCLUSIVE_RELEASE();
-        // Remove the run-to singleshot breakpoint (BpDelete takes the lock)
-        if(removeRunToSs)
-            BpDelete(breakpointExceptionAddress, BPNORMAL);
-        // Remove the F4 one-shot INT3 (kept armed by TitanEngine as a
-        // non-singleshoot breakpoint) so it stops firing.
-        if(setBpx)
-            DeleteBPX(runToAddr);
-        DebugUpdateGuiSetStateAsync(GetContextDataEx(hActiveThread, UE_CIP), paused);
-        //lock
-        lock(WAITID_RUN);
-        // Plugin callback
-        PLUG_CB_PAUSEDEBUG pauseInfo = { nullptr };
-        plugincbcall(CB_PAUSEDEBUG, &pauseInfo);
-        dbgsetforeground();
-        dbgsetskipexceptions(false);
-        wait(WAITID_RUN);
-        return;
-    }
     if(bpPtr == nullptr || !bpPtr->enabled) //invalid / disabled breakpoint hit (most likely a bug)
     {
         // release the breakpoint lock to prevent deadlocks during the wait
@@ -1409,8 +1348,7 @@ static bool cbRemoveModuleBreakpoints(const BREAKPOINT* bp)
             dprintf(QT_TRANSLATE_NOOP("DBG", "Could not delete breakpoint %p! (DeleteBPX)\n"), bp->addr);
         break;
     case BPMEMORY:
-        if(!RemoveMemoryBPX(bp->addr, 0))
-            dprintf(QT_TRANSLATE_NOOP("DBG", "Could not delete memory breakpoint %p! (RemoveMemoryBPX)\n"), bp->addr);
+        BpRemoveMemoryBpxAllPages(bp->addr, bp->memsize);
         break;
     case BPHARDWARE:
         if(TITANDRXVALID(bp->titantype) && !DeleteHardwareBreakPoint(TITANGETDRX(bp->titantype)))
@@ -1427,6 +1365,26 @@ void DebugRemoveBreakpoints()
     BpEnumAll(cbRemoveModuleBreakpoints);
 }
 
+// Remove every memory breakpoint from the logical breakpoint map. Memory
+// breakpoints are armed through live page protections and are session-local:
+// they must never carry over to a newly loaded target (DbLoad already skips
+// persisting/restoring them, but the in-memory map can still hold leftovers
+// from the previous target/attach attempt).
+static bool cbRemoveAllMemoryBreakpoints(const BREAKPOINT* bp)
+{
+    if(bp->type != BPMEMORY)
+        return true;
+    // No engine-side removal here: the new target has not been armed yet, and
+    // any previous guard page lives in the old (now detached) process.
+    BpDelete(bp->addr, BPMEMORY);
+    return true;
+}
+
+void DebugRemoveMemoryBreakpoints()
+{
+    BpEnumAll(cbRemoveAllMemoryBreakpoints);
+}
+
 void DebugSetBreakpoints()
 {
     BpEnumAll(cbSetModuleBreakpoints);
@@ -1436,23 +1394,6 @@ void cbStep()
 {
     hActiveThread = ThreadGetHandle(GetDebugData()->dwThreadId);
     duint CIP = GetContextDataEx(hActiveThread, UE_CIP);
-    // F4 with target == current CIP: the preliminary single-step has executed
-    // the current instruction — arm the run-to and keep running to the
-    // target's next execution.
-    if(gRunToPendingF4)
-    {
-        duint addr = gRunToPendingF4Addr;
-        DWORD tid = gRunToPendingF4Thread;
-        gRunToPendingF4 = false;
-        gRunToAddress = addr;
-        gRunToThreadId = tid;
-        gRunToSetBPX = SetBPX(addr, UE_BREAKPOINT, cbUserBreakpoint);
-        // Trace record
-        dbgtraceexecute(CIP);
-        GuiSetDebugStateAsync(running);
-        unlock(WAITID_RUN);
-        return; // continue running — the armed INT3 stops at the next execution
-    }
     if(bAbortStepping || !stepRepeat || !--stepRepeat)
     {
         DebugUpdateGuiSetStateAsync(CIP, paused);
@@ -3354,7 +3295,14 @@ static void debugLoopFunction(INIT_STRUCT* init)
     }
 
     // Init program database
+    // Init program database
     DbLoad(DbLoadSaveType::DebugData);
+    // Memory breakpoints are session-local (page protections armed against a
+    // specific live target). Clear any that remain in the map so they never
+    // carry over from a previous target/attach into this one. DbLoad already
+    // skips restoring them from disk, and DebugSetBreakpoints will NOT re-arm
+    // them for the new target.
+    DebugRemoveMemoryBreakpoints();
 
     //run debug loop (returns when process debugging is stopped)
     if(init->attach)

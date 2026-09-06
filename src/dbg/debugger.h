@@ -90,6 +90,7 @@ void DebugUpdateGuiSetStateAsync(duint disasm_addr, DBGSTATE state);
 void DebugUpdateBreakpointsViewAsync();
 void DebugUpdateStack(duint dumpAddr, duint csp, bool forceDump = false);
 void DebugRemoveBreakpoints();
+void DebugRemoveMemoryBreakpoints();
 void DebugSetBreakpoints();
 void GuiSetDebugStateAsync(DBGSTATE state);
 void dbgsetskipexceptions(bool skip);

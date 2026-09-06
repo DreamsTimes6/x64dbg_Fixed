@@ -25,15 +25,6 @@
 // suspended threads stay suspended until a plain run command resumes them.
 static bool bStepSuspendedOthers = false;
 
-// Set by "run <addr>" (F4) so a breakpoint hit exactly at the target address
-// pauses cleanly without triggering the breakpoint's own actions.
-extern duint gRunToAddress;
-extern DWORD gRunToThreadId;
-extern bool gRunToSetBPX;
-extern bool gRunToPendingF4;
-extern duint gRunToPendingF4Addr;
-extern DWORD gRunToPendingF4Thread;
-
 static bool isInt3Exception()
 {
     if(getLastExceptionInfo().ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT)
@@ -66,81 +57,20 @@ bool cbDebugRunInternal(int argc, char* argv[], HistoryAction history, bool resu
         HistoryRecord();
     else
         HistoryClear();
-    // F4 / "run <addr>": when single-threaded stepping is enabled, suspend
-    // every other thread so they can't hit their own breakpoints (or this
-    // run-to-address target) while the current thread runs to the address.
+    // F4 / "run <addr>": place a single-shot software breakpoint at the
+    // target through the normal breakpoint command. The breakpoint is visible
+    // in the breakpoints view and is automatically deleted when hit (upstream
+    // x64dbg behavior) - no stray "unknown breakpoint" can be left behind.
+    if(argc >= 2 && !DbgCmdExecDirect(StringUtils::sprintf("bp \"%s\", ss", argv[1]).c_str()))
+        return false;
+    // F4: when single-threaded stepping is enabled, suspend every other thread
+    // so they can't hit their own breakpoints (or the run-to target) while the
+    // current thread runs to the address.
     if(argc >= 2 && settingboolget("Engine", "SingleThreadStepping", false) && !bStepSuspendedOthers)
     {
         ThreadSuspendAllExceptActive();
         bStepSuspendedOthers = true;
         resumeSteppedThreads = false; // keep them suspended after the run
-    }
-    // F4 / "run <addr>": record the target for run-to priority in
-    // cbGenericBreakpoint, and set a singleshot breakpoint WITHOUT touching
-    // an existing breakpoint — the old `bp "addr", ss` path enabled a
-    // disabled F2 breakpoint via cbDebugSetBPX's "bpe" fallback.
-    if(argc >= 2)
-    {
-        duint runToAddr = 0;
-        if(valfromstring(argv[1], &runToAddr, false))
-        {
-            BREAKPOINT bpInfo;
-            bool hasEnabled = BpGet(runToAddr, BPNORMAL, nullptr, &bpInfo) && bpInfo.enabled;
-            // F4 target == current CIP (paused on the target): single-step the
-            // current instruction first so the INT3 isn't armed at our own
-            // feet, then continue to the target's NEXT execution. Only done
-            // when there is no enabled breakpoint at the target (with an
-            // enabled one, F4 must not interfere and the breakpoint fires
-            // normally).
-            if(!hasEnabled && runToAddr == GetContextDataEx(hActiveThread, UE_CIP))
-            {
-                gRunToPendingF4 = true;
-                gRunToPendingF4Addr = runToAddr;
-                gRunToPendingF4Thread = ThreadGetId(hActiveThread);
-                StepIntoWow64(cbStep);
-                dbgsetsteprepeat(true, 1);
-                GuiSetDebugStateAsync(running);
-                unlock(WAITID_RUN);
-                PLUG_CB_RESUMEDEBUG callbackInfo;
-                callbackInfo.reserved = 0;
-                plugincbcall(CB_RESUMEDEBUG, &callbackInfo);
-                return true;
-            }
-            if(hasEnabled)
-            {
-                // The target already has an ENABLED software breakpoint:
-                // F4 must not interfere — the breakpoint fires normally with
-                // all its actions (commands/log/hit count). No run-to target
-                // is recorded and no extra breakpoint is set.
-                gRunToAddress = 0;
-                gRunToThreadId = 0;
-                gRunToSetBPX = false;
-            }
-            else
-            {
-                // No enabled breakpoint at the target (none, or a disabled
-                // one): arm a one-shot INT3 (process-wide) and record the
-                // initiating thread, so only that thread triggers the run-to
-                // (other threads hitting the INT3 re-arm it and keep going).
-                // F4 pauses cleanly and does not touch a disabled
-                // breakpoint's state.
-                gRunToAddress = runToAddr;
-                gRunToThreadId = ThreadGetId(hActiveThread);
-                gRunToSetBPX = false;
-                if(SetBPX(runToAddr, UE_BREAKPOINT, cbUserBreakpoint))
-                    gRunToSetBPX = true;
-            }
-        }
-    }
-    else
-    {
-        // Plain run (F9): clean up any unfinished run-to INT3 and pending F4.
-        if(gRunToSetBPX && gRunToAddress)
-            DeleteBPX(gRunToAddress);
-        gRunToSetBPX = false;
-        gRunToThreadId = 0;
-        gRunToAddress = 0;
-        gRunToPendingF4 = false; // cancel a queued F4 (target == current CIP) that never started
     }
     // Resume threads suspended by single-threaded stepping (step commands
     // pass resumeSteppedThreads=false and keep the suspension active)
@@ -445,7 +375,7 @@ static bool dbgdetachDisableAllBreakpoints(const BREAKPOINT* bp)
         if(bp->type == BPNORMAL)
             DeleteBPX(bp->addr);
         else if(bp->type == BPMEMORY)
-            RemoveMemoryBPX(bp->addr, 0);
+            BpRemoveMemoryBpxAllPages(bp->addr, bp->memsize);
         else if(bp->type == BPHARDWARE && TITANDRXVALID(bp->titantype))
             DeleteHardwareBreakPoint(TITANGETDRX(bp->titantype));
     }

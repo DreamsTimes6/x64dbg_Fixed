@@ -710,11 +710,8 @@ static bool cbDeleteAllMemoryBreakpoints(const BREAKPOINT* bp)
         dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed (BpDelete): %p\n"), bp->addr);
         return false;
     }
-    if(bp->enabled && bp->active && !RemoveMemoryBPX(bp->addr, size))
-    {
-        dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed (RemoveMemoryBPX): %p\n"), bp->addr);
-        return false;
-    }
+    if(bp->enabled && bp->active)
+        BpRemoveMemoryBpxAllPages(bp->addr, size);
     return true;
 }
 
@@ -747,11 +744,10 @@ static bool cbDisableAllMemoryBreakpoints(const BREAKPOINT* bp)
         dprintf(QT_TRANSLATE_NOOP("DBG", "Could not disable memory breakpoint %p (BpEnable)\n"), bp->addr);
         return false;
     }
-    if(!RemoveMemoryBPX(bp->addr, 0))
-    {
-        dprintf(QT_TRANSLATE_NOOP("DBG", "Could not disable memory breakpoint %p (RemoveMemoryBPX)\n"), bp->addr);
-        return false;
-    }
+    auto size = bp->memsize;
+    if(size == 0)
+        MemFindBaseAddr(bp->addr, &size);
+    BpRemoveMemoryBpxAllPages(bp->addr, size);
     return true;
 }
 
@@ -946,33 +942,42 @@ bool cbDebugDeleteMemoryBreakpoint(int argc, char* argv[])
             dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed: %p (BpDelete)\n"), found.addr);
             return false;
         }
-        if(!RemoveMemoryBPX(found.addr, size))
-        {
-            dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed: %p (RemoveMemoryBPX)\n"), found.addr);
-            return false;
-        }
+        BpRemoveMemoryBpxAllPages(found.addr, size);
         GuiUpdateAllViews();
         return true;
     }
     duint addr = 0;
-    if(!valfromstring(argv[1], &addr) || !BpGet(addr, BPMEMORY, 0, &found)) //invalid breakpoint
+    if(!valfromstring(argv[1], &addr))
+    {
+        dprintf(QT_TRANSLATE_NOOP("DBG", "No such memory breakpoint \"%s\"\n"), argv[1]);
+        return false;
+    }
+    // Memory breakpoints are keyed by the base of the containing region (see
+    // cbDebugSetMemoryBpx), not by the address the user clicked. Normalize the
+    // address to that region base so the database and TitanEngine are both
+    // cleaned up; otherwise RemoveMemoryBPX is never reached and the guard
+    // page stays armed, later firing as "Breakpoint reached not in list!".
+    duint delSize = 0;
+    duint delBase = MemFindBaseAddr(addr, &delSize, false);
+    if(delBase)
+        addr = delBase;
+    if(!BpGet(addr, BPMEMORY, 0, &found)) //invalid breakpoint
     {
         dprintf(QT_TRANSLATE_NOOP("DBG", "No such memory breakpoint \"%s\"\n"), argv[1]);
         return false;
     }
     auto size = found.memsize;
     if(size == 0)
-        MemFindBaseAddr(found.addr, &size);
+    {
+        if(!MemFindBaseAddr(found.addr, &size, false))
+            size = delSize;
+    }
     if(!BpDelete(found.addr, BPMEMORY))
     {
         dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed: %p (BpDelete)\n"), found.addr);
         return false;
     }
-    if(!RemoveMemoryBPX(found.addr, size))
-    {
-        dprintf(QT_TRANSLATE_NOOP("DBG", "Delete memory breakpoint failed: %p (RemoveMemoryBPX)\n"), found.addr);
-        return false;
-    }
+    BpRemoveMemoryBpxAllPages(found.addr, size);
     dputs(QT_TRANSLATE_NOOP("DBG", "Memory breakpoint deleted!"));
     GuiUpdateAllViews();
     return true;
@@ -1041,7 +1046,19 @@ bool cbDebugDisableMemoryBreakpoint(int argc, char* argv[])
     }
     BREAKPOINT found;
     duint addr = 0;
-    if(!valfromstring(argv[1], &addr) || !BpGet(addr, BPMEMORY, 0, &found)) //invalid memory breakpoint
+    if(!valfromstring(argv[1], &addr))
+    {
+        dprintf(QT_TRANSLATE_NOOP("DBG", "No such memory breakpoint \"%s\"\n"), argv[1]);
+        return false;
+    }
+    // Memory breakpoints are keyed by the base of the containing region, not
+    // the address the user clicked. Normalize to that base before lookup so
+    // RemoveMemoryBPX targets the same entry SetMemoryBPXEx armed.
+    duint delSize = 0;
+    duint delBase = MemFindBaseAddr(addr, &delSize, false);
+    if(delBase)
+        addr = delBase;
+    if(!BpGet(addr, BPMEMORY, 0, &found)) //invalid memory breakpoint
     {
         dprintf(QT_TRANSLATE_NOOP("DBG", "No such memory breakpoint \"%s\"\n"), argv[1]);
         return false;
@@ -1053,17 +1070,16 @@ bool cbDebugDisableMemoryBreakpoint(int argc, char* argv[])
     }
     auto size = found.memsize;
     if(size == 0)
-        MemFindBaseAddr(found.addr, &size);
-    if(!RemoveMemoryBPX(found.addr, size))
     {
-        dprintf(QT_TRANSLATE_NOOP("DBG", "Could not disable memory breakpoint %p (RemoveMemoryBPX)\n"), found.addr);
-        return false;
+        if(!MemFindBaseAddr(found.addr, &size, false))
+            size = delSize;
     }
     if(!BpEnable(found.addr, BPMEMORY, false))
     {
         dprintf(QT_TRANSLATE_NOOP("DBG", "Could not disable memory breakpoint %p (BpEnable)\n"), found.addr);
         return false;
     }
+    BpRemoveMemoryBpxAllPages(found.addr, size);
     dputs(QT_TRANSLATE_NOOP("DBG", "Memory breakpoint disabled!"));
     GuiUpdateAllViews();
     return true;
