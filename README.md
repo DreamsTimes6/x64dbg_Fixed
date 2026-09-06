@@ -24,8 +24,10 @@
 
 | 文件 | 修复内容 |
 |---|---|
-| `src/dbg/commands/cmd-breakpoint-control.cpp` | `bpm`/`membp` 使用整个内存区域（region）语义；地址不在内存映射时（如 x64 下 32 位寄存器表达式）回退到所在页；`SetMemoryBPXEx` 武装失败（栈守卫页 / 保留区间）时自动降级为单页断点 |
+| `src/dbg/commands/cmd-breakpoint-control.cpp` | `bpm`/`membp` 使用整个内存区域（region）语义；地址不在内存映射时（如 x64 下 32 位寄存器表达式）回退到所在页；`SetMemoryBPXEx` 武装失败（栈守卫页 / 保留区间）时自动降级为单页断点；删除/禁用时按区域基址归一化再清理 |
 | `src/dbg/breakpoint.cpp` | `findMemoryBreakpoint` 改为线性扫描精确范围匹配，修复同页多个断点（整页断点 + 精确大小断点）时 `upper_bound` 漏查；加载数据库断点时正确标记 `active` |
+| `src/dbg/breakpoint.cpp/.h` | 新增 `BpRemoveMemoryBpxAllPages`：删除/禁用时逐页清理 TitanEngine 条目（region 基址条目 + 单页 fallback 条目），修复“两个内存断点”删除一个后另一个残留成“未知断点”的问题；`BpCacheSave`/`BpCacheLoad` **跳过内存断点**——内存断点不落盘、不恢复，只在本会话有效 |
+| `src/dbg/debugger.cpp/.h` | 新增 `DebugRemoveMemoryBreakpoints()`：`init`/`attach` 加载新目标后清空残留的内存断点，旧目标的内存断点不会带入新会话 |
 | `src/tests/membp/test*.txt` | 补充断点命中断言（`run` 后 `mbasserthit`） |
 
 ### 2. 数据库健壮性（Database）
@@ -43,13 +45,13 @@
 | `src/dbg/commands/cmd-misc.cpp` | `setjit restore` 在没有保存旧 JIT 时（首次设置 / 重复设置）不再报错，改为清除注册表 JIT —— GUI“设为即时调试器”取消不再失败 |
 | `src/gui/Src/Gui/SettingsDialog.cpp` | 移除取消勾选时的强制拦截（`NOT FOUND OLD JIT` 警告块） |
 
-### 4. 单线程步进与 F4 线程锁定（Single-Threaded Stepping）
+### 4. 单线程步进与 F4（Single-Threaded Stepping & Run-to）
 
 | 文件 | 修复内容 |
 |---|---|
 | `src/dbg/thread.cpp` / `thread.h` | 新增 `ThreadSuspendAllExceptActive()` |
-| `src/dbg/commands/cmd-debug-control.cpp/.h` | 新增设置 `Engine.SingleThreadStepping`：`step`/`stepover`/`stepout` 时自动挂起其他线程（等效 OllyDbg 单线程步进）；**F4（`run <addr>`）同样锁定其他线程**（只当前线程跑到目标地址），`run`（F9）恢复所有线程；`stop` 时清理 |
-| `src/dbg/debugger.cpp` | 新增 `gRunToAddress`：**F4 运行到地址优先于已有断点**——命中目标地址时干净暂停，**跳过已有 F2 断点的命令/日志/命中计数**；`gRunToThreadId` 线程级命中（其他线程踩到不暂停） |
+| `src/dbg/commands/cmd-debug-control.cpp/.h` | 新增设置 `Engine.SingleThreadStepping`：`step`/`stepover`/`stepout` 时自动挂起其他线程（等效 OllyDbg 单线程步进）；启用该设置时 **F4（`run <addr>`）同样挂起其他线程**，`run`（F9）恢复所有线程；`stop` 时清理 |
+| `src/dbg/commands/cmd-debug-control.cpp` | **F4 恢复上游语义**：`run <addr>` = `bp "addr", ss` + `run` —— 一次性断点**在断点列表可见**、命中后自动删除，不会残留“未知断点”；不再使用 `gRunTo*` 线程锁定 / 断点优先级状态机 |
 | `src/gui/Src/Gui/SettingsDialog.*` | 选项页新增“单步调试时挂起其他线程”勾选框 |
 
 ### 4b. 线程断点（进程断点 / 线程断点）
